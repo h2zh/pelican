@@ -126,7 +126,7 @@ func (e badRequestError) Error() string {
 	return e.Message
 }
 
-func matchKeys(incomingKey jwk.Key, registeredNamespaces []string) (bool, error) {
+func matchKeys(incomingKeys []jwk.Key, registeredNamespaces []string) (bool, error) {
 	// If this is the case, we want to make sure that at least one of the superspaces has the
 	// same registration key as the incoming. This guarantees the owner of the superspace is
 	// permitting the action (assuming their keys haven't been stolen!)
@@ -147,15 +147,25 @@ func matchKeys(incomingKey jwk.Key, registeredNamespaces []string) (bool, error)
 			if err != nil {
 				return false, errors.Wrapf(err, "failed to marshal a key registered to %s into JSON", ns)
 			}
-			incomingKeyBuf, err := json.Marshal(incomingKey)
-			if err != nil {
-				return false, errors.Wrap(err, "failed to marshal the incoming key into JSON")
-			}
 
-			if string(registeredKeyBuf) == string(incomingKeyBuf) {
-				foundMatch = true
+			// Check if any incoming key matches the registered key
+			for _, incomingKey := range incomingKeys {
+				incomingKeyBuf, err := json.Marshal(incomingKey)
+				if err != nil {
+					return false, errors.Wrap(err, "failed to marshal the incoming key into JSON")
+				}
+
+				if string(registeredKeyBuf) == string(incomingKeyBuf) {
+					foundMatch = true
+					break
+				}
+			}
+			if foundMatch {
 				break
 			}
+		}
+		if foundMatch {
+			break
 		}
 	}
 
@@ -246,7 +256,7 @@ func keySignChallengeInit(data *registrationData) (map[string]interface{}, error
 // It returns whether registration is created, the response data, and an error if any
 func keySignChallengeCommit(ctx *gin.Context, data *registrationData) (bool, map[string]interface{}, error) {
 	// Validate the client's jwks as a set here
-	key, err := validateJwks(string(data.Pubkey))
+	keys, err := validateJwks(string(data.Pubkey))
 	if err != nil {
 		return false, nil, badRequestError{Message: err.Error()}
 	}
@@ -256,19 +266,36 @@ func keySignChallengeCommit(ctx *gin.Context, data *registrationData) (bool, map
 	}
 	registryUrl := fedInfo.RegistryEndpoint
 
-	var rawkey interface{} // This is the raw key, like *rsa.PrivateKey or *ecdsa.PrivateKey
-	if err := key.Raw(&rawkey); err != nil {
-		return false, nil, errors.Wrap(err, "failed to generate raw pubkey from jwks")
-	}
-
-	// Verify the Proof of Possession of the client and server's active private keys
 	clientPayload := []byte(data.ClientNonce + data.ServerNonce)
 	clientSignature, err := hex.DecodeString(data.ClientSignature)
-	log.Debugf("client's active signature: %s; active key: %s", string(clientSignature), key.KeyID())
 	if err != nil {
 		return false, nil, errors.Wrap(err, "Failed to decode the client's signature")
 	}
-	clientVerified := verifySignature(clientPayload, clientSignature, (rawkey).(*ecdsa.PublicKey))
+
+	// Loop through each valid key of the client to check if any of them can verify signature
+	var clientVerified bool
+	for _, key := range keys {
+		var rawkey interface{}
+		if err := key.Raw(&rawkey); err != nil {
+			log.Warnf("Failed to extract raw key from JWKS: %v", err)
+			continue
+		}
+
+		ecdsaPubKey, ok := rawkey.(*ecdsa.PublicKey)
+		if !ok {
+			log.Warnf("Key is not an ECDSA public key")
+			continue
+		}
+
+		if verifySignature(clientPayload, clientSignature, ecdsaPubKey) {
+			clientVerified = true
+			break // Stop if finding a valid key that verifies the signature
+		}
+	}
+
+	if !clientVerified {
+		return false, nil, errors.New("Client signature verification failed")
+	}
 	serverPayload, err := hex.DecodeString(data.ServerPayload)
 	if err != nil {
 		return false, nil, errors.Wrap(err, "Failed to decode the server's payload")
@@ -421,7 +448,7 @@ func keySignChallengeCommit(ctx *gin.Context, data *registrationData) (bool, map
 		}
 		data.Prefix = reqPrefix
 
-		inTopo, topoNss, valErr, sysErr := validateKeyChaining(reqPrefix, key)
+		inTopo, topoNss, valErr, sysErr := validateKeyChaining(reqPrefix, keys)
 		if valErr != nil {
 			log.Errorln(err)
 			return false, nil, permissionDeniedError{Message: valErr.Error()}

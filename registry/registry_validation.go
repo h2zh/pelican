@@ -90,7 +90,7 @@ func validatePrefix(nspath string) (string, error) {
 	return result, nil
 }
 
-func validateKeyChaining(prefix string, pubkey jwk.Key) (inTopo bool, topoNss []Topology, validationError error, serverError error) {
+func validateKeyChaining(prefix string, pubkeys []jwk.Key) (inTopo bool, topoNss []Topology, validationError error, serverError error) {
 	// We don't check keyChaining for caches or origins
 	if server_structs.IsCacheNS(prefix) || server_structs.IsOriginNS(prefix) {
 		return
@@ -115,7 +115,7 @@ func validateKeyChaining(prefix string, pubkey jwk.Key) (inTopo bool, topoNss []
 		// If this is the case, we want to make sure that at least one of the superspaces has the
 		// same registration key as the incoming. This guarantees the owner of the superspace is
 		// permitting the action (assuming their keys haven't been stolen!)
-		matched, err := matchKeys(pubkey, superspaces)
+		matched, err := matchKeys(pubkeys, superspaces)
 		if err != nil {
 			serverError = errors.Errorf("%v: Unable to check if the incoming key for %s matched any public keys for %s", err, prefix, subspaces)
 			return
@@ -135,7 +135,7 @@ func validateKeyChaining(prefix string, pubkey jwk.Key) (inTopo bool, topoNss []
 		// More interestingly, if /foo/bar and /foo/baz are both registered, should they both be consulted before adding /foo?
 
 		// For now, we'll just check for any key match.
-		matched, err := matchKeys(pubkey, subspaces)
+		matched, err := matchKeys(pubkeys, subspaces)
 		if err != nil {
 			serverError = errors.Errorf("%v: Unable to check if the incoming key for %s matched any public keys for %s", err, prefix, subspaces)
 			return
@@ -148,7 +148,7 @@ func validateKeyChaining(prefix string, pubkey jwk.Key) (inTopo bool, topoNss []
 	return
 }
 
-func validateJwks(jwksStr string) (jwk.Key, error) {
+func validateJwks(jwksStr string) ([]jwk.Key, error) {
 	if jwksStr == "" {
 		return nil, errors.New("public key is empty")
 	}
@@ -167,17 +167,26 @@ func validateJwks(jwksStr string) (jwk.Key, error) {
 	}
 
 	/*
-	 * TODO: This section makes the assumption that the incoming jwks only contains a single
-	 *       key, a property that is enforced by the client at the origin. Eventually we need
-	 *       to support the addition of other keys in the jwks stored for the origin. There is
+	 * 		 Support multiple keys in the jwks stored for the origin. There is
 	 *       a similar TODO listed in client_commands.go, as the choices made there mirror the
 	 *       choices made here.
 	 */
-	key, exists := clientJwks.Key(0)
-	if !exists {
-		return nil, errors.New("There was no key at index 0 in the reuqest pubKey's JWKS. Something is wrong")
+	var validKeys []jwk.Key
+	for i := 0; i < clientJwks.Len(); i++ {
+		key, exists := clientJwks.Key(i)
+		if !exists {
+			log.Warnf("No key at index %d in the request pubKey's JWKS. Something is wrong", i)
+			continue
+		}
+
+		validKeys = append(validKeys, key)
 	}
-	return key, nil
+
+	if len(validKeys) == 0 {
+		return nil, errors.New("No valid keys found in the JWKS")
+	}
+
+	return validKeys, nil
 }
 
 // Validates if the instID, the id of the institution, matches institution options

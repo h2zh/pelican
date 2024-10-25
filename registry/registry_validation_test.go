@@ -209,33 +209,37 @@ func TestValidateKeyChaining(t *testing.T) {
 		server_utils.ResetTestState()
 	}()
 
-	_, jwksFoo, jwksStrFoo, err := test_utils.GenerateJWK()
+	_, jwksFoo, jwksStrFoo, err := test_utils.GenerateMultipleJWK(2)
 	require.NoError(t, err)
 
-	jwkFoo, ok := jwksFoo.Key(0)
-	require.True(t, ok)
+	jwkFoo, err := test_utils.JWKSetToList(jwksFoo)
+	require.NoError(t, err)
 	require.NotNil(t, jwkFoo)
+	require.Len(t, jwkFoo, 2)
 
-	_, jwksBar, jwksStrBar, err := test_utils.GenerateJWK()
+	_, jwksBar, jwksStrBar, err := test_utils.GenerateMultipleJWK(2)
 	require.NoError(t, err)
 
-	jwkBar, ok := jwksBar.Key(0)
-	require.True(t, ok)
+	jwkBar, err := test_utils.JWKSetToList(jwksBar)
+	require.NoError(t, err)
 	require.NotNil(t, jwkBar)
+	require.Len(t, jwkBar, 2)
 
-	_, jwksCache, jwksStrCache, err := test_utils.GenerateJWK()
+	_, jwksCache, jwksStrCache, err := test_utils.GenerateMultipleJWK(2)
 	require.NoError(t, err)
 
-	jwkCache, ok := jwksCache.Key(0)
-	require.True(t, ok)
+	jwkCache, err := test_utils.JWKSetToList(jwksCache)
+	require.NoError(t, err)
 	require.NotNil(t, jwkCache)
+	require.Len(t, jwkCache, 2)
 
-	_, jwksMockNew, _, err := test_utils.GenerateJWK()
+	_, jwksMockNew, _, err := test_utils.GenerateMultipleJWK(2)
 	require.NoError(t, err)
 
-	jwkMockNew, ok := jwksMockNew.Key(0)
-	require.True(t, ok)
+	jwkMockNew, err := test_utils.JWKSetToList(jwksMockNew)
+	require.NoError(t, err)
 	require.NotNil(t, jwkMockNew)
+	require.Len(t, jwkMockNew, 2)
 
 	err = insertMockDBData([]server_structs.Namespace{
 		mockNamespace("/foo", jwksStrFoo, "", server_structs.AdminMetadata{}),

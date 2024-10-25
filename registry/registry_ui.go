@@ -395,7 +395,7 @@ func createUpdateNamespace(ctx *gin.Context, isUpdate bool) {
 	}
 
 	// Check if pubKey is a valid JWK
-	pubkey, err := validateJwks(ns.Pubkey)
+	pubkeys, err := validateJwks(ns.Pubkey)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, server_structs.SimpleApiResp{
 			Status: server_structs.RespFailed,
@@ -404,7 +404,7 @@ func createUpdateNamespace(ctx *gin.Context, isUpdate bool) {
 	}
 
 	// Check if the parent or child path along the prefix has been registered
-	inTopo, topoNss, valErr, sysErr := validateKeyChaining(ns.Prefix, pubkey)
+	inTopo, topoNss, valErr, sysErr := validateKeyChaining(ns.Prefix, pubkeys)
 	if valErr != nil {
 		log.Errorln("Bad prefix when validating key chaining", valErr)
 		ctx.JSON(http.StatusBadRequest, server_structs.SimpleApiResp{
