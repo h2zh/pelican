@@ -25,6 +25,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -80,6 +81,24 @@ func WriteBigBuffer(t *testing.T, fp io.WriteCloser, sizeMB int) (size int) {
 	return
 }
 
+// JWKSetToList converts a jwk.Set to a list of individual JWK keys
+func JWKSetToList(set jwk.Set) ([]jwk.Key, error) {
+	if set == nil {
+		return nil, fmt.Errorf("jwk set is nil")
+	}
+
+	keys := make([]jwk.Key, 0, set.Len())
+	for i := 0; i < set.Len(); i++ {
+		key, ok := set.Key(i)
+		if !ok {
+			return nil, fmt.Errorf("index %d is out of bound of jwks", i)
+		}
+		keys = append(keys, key)
+	}
+
+	return keys, nil
+}
+
 // GenerateJWK generates a JWK private key and a corresponding JWKS public key,
 // and the string representation of the public key
 func GenerateJWK() (jwk.Key, jwk.Set, string, error) {
@@ -116,6 +135,60 @@ func GenerateJWK() (jwk.Key, jwk.Set, string, error) {
 	}
 
 	return jwkKey, jwks, string(jwksBytes), nil
+}
+
+// GenerateMultipleJWK generates multiple JWK private keys and a corresponding JWKS containing all public keys,
+// and returns the private keys, the JWKS, and the string representation of the JWKS
+func GenerateMultipleJWK(count int) ([]jwk.Key, jwk.Set, string, error) {
+	if count <= 0 {
+		return nil, nil, "", fmt.Errorf("count must be greater than 0")
+	}
+
+	privateKeys := make([]jwk.Key, 0, count)
+
+	// Create a JWKS for public keys
+	jwks := jwk.NewSet()
+
+	for i := 0; i < count; i++ {
+		// Generate an RSA private key
+		privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			return nil, nil, "", fmt.Errorf("failed to generate RSA key %d: %w", i+1, err)
+		}
+
+		// Create a JWK from the private key
+		jwkKey, err := jwk.FromRaw(privateKey)
+		if err != nil {
+			return nil, nil, "", fmt.Errorf("failed to create JWK from private key %d: %w", i+1, err)
+		}
+
+		// Set key properties
+		_ = jwkKey.Set(jwk.KeyIDKey, fmt.Sprintf("key%d", i+1))
+		_ = jwkKey.Set(jwk.AlgorithmKey, "RS256")
+		_ = jwkKey.Set(jwk.KeyUsageKey, "sig")
+
+		// Store the private key
+		privateKeys = append(privateKeys, jwkKey)
+
+		// Extract the public key
+		publicKey, err := jwk.PublicKeyOf(jwkKey)
+		if err != nil {
+			return nil, nil, "", fmt.Errorf("failed to extract public key %d: %w", i+1, err)
+		}
+
+		// Add public key to JWKS
+		if err := jwks.AddKey(publicKey); err != nil {
+			return nil, nil, "", fmt.Errorf("failed to add public key %d to JWKS: %w", i+1, err)
+		}
+	}
+
+	// Marshal JWKS to string
+	jwksBytes, err := json.Marshal(jwks)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("failed to marshal JWKS: %w", err)
+	}
+
+	return privateKeys, jwks, string(jwksBytes), nil
 }
 
 func GenerateJWKS() (string, error) {
