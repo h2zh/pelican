@@ -36,7 +36,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -506,30 +505,14 @@ func GenerateCert() error {
 // Helper function to load the issuer/server's private key to sign tokens it issues.
 // Only intended to be called internally
 func loadIssuerPrivateJWK(issuerKeyFile string) (jwk.Key, error) {
-	// Check to see if we already had an IssuerKey or generate one
-	if err := GeneratePrivateKey(issuerKeyFile, elliptic.P256(), false); err != nil {
-		return nil, errors.Wrap(err, "Failed to generate new private key")
-	}
-	contents, err := os.ReadFile(issuerKeyFile)
-	if err != nil {
-		return nil, errors.Wrap(err, "Failed to read issuer key file")
-	}
-	key, err := jwk.ParseKey(contents, jwk.WithPEM(true))
-	if err != nil {
-		return nil, errors.Wrapf(err, "Failed to parse issuer key file %v", issuerKeyFile)
+	km := GetKeyManager()
+	if err := km.Initialize(); err != nil {
+		return nil, errors.Wrap(err, "Failed to initialize key manager")
 	}
 
-	// Add the algorithm to the key, needed for verifying tokens elsewhere
-	err = key.Set(jwk.AlgorithmKey, jwa.ES256)
+	key, err := km.GetActivePrivateKey()
 	if err != nil {
-		return nil, errors.Wrap(err, "Failed to add alg specification to key header")
-	}
-
-	// Assign key id to the private key so that the public key obtainer thereafter
-	// has the same kid
-	err = jwk.AssignKeyID(key)
-	if err != nil {
-		return nil, errors.Wrap(err, "Failed to assign key ID to private key")
+		return nil, errors.Wrap(err, "Failed to get active key")
 	}
 
 	// Store the key in the in-memory cache
