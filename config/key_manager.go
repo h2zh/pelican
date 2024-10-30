@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"crypto/elliptic"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/pelicanplatform/pelican/param"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -140,7 +142,13 @@ func (km *KeyManager) loadPrivateKeysFromDirectory() error {
 			continue
 		}
 
+		// Skip if the key is already loaded
+		if _, exists := km.keys[key.KeyID()]; exists {
+			continue
+		}
+
 		km.keys[key.KeyID()] = key
+		log.Debugf("Loaded the private key in %s into the key manager", file.Name())
 	}
 
 	return nil
@@ -215,4 +223,27 @@ func (km *KeyManager) GetPrivateKeyByID(kid string) (jwk.Key, bool) {
 
 	key, exists := km.keys[kid]
 	return key, exists
+}
+
+// LaunchPrivateKeysDirRefresh checks the directory for new .pem files every 10 minutes
+// and loads new private keys if a new file is found.
+func LaunchPrivateKeysDirRefresh(ctx context.Context, egrp *errgroup.Group) {
+	egrp.Go(func() error {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				log.Debugln("Stopping periodic check for private keys directory.")
+				return nil
+			case <-ticker.C:
+				if err := globalKeyManager.loadPrivateKeysFromDirectory(); err != nil {
+					log.Errorf("Error loading private keys: %v", err)
+				} else {
+					log.Debugln("All private keys loaded successfully.")
+				}
+			}
+		}
+	})
 }
