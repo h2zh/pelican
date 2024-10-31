@@ -49,6 +49,10 @@ var (
 	issuerPrivateJWK atomic.Pointer[jwk.Key]
 )
 
+func UpdateIssuerJWKPtr(newKey jwk.Key) {
+	issuerPrivateJWK.Store(&newKey)
+}
+
 // Reset the atomic pointer to issuer private jwk
 func ResetIssuerJWKPtr() {
 	issuerPrivateJWK.Store(nil)
