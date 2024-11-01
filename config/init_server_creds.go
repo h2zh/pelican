@@ -33,9 +33,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -47,6 +51,9 @@ var (
 	// This is the private JWK for the server to sign tokens. This key remains
 	// the same if the IssuerKey is unchanged
 	issuerPrivateJWK atomic.Pointer[jwk.Key]
+
+	// Representing all private keys (.pem files) in the directory
+	issuerPrivateKeys sync.Map
 )
 
 func UpdateIssuerJWKPtr(newKey jwk.Key) {
@@ -506,17 +513,145 @@ func GenerateCert() error {
 	return nil
 }
 
+// Helper function to load one .pem file from specified filename
+func loadSinglePEM(path string) (jwk.Key, error) {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed to read key file")
+	}
+
+	key, err := jwk.ParseKey(contents, jwk.WithPEM(true))
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed to parse key")
+	}
+
+	// Add the algorithm to the key, needed for verifying tokens elsewhere
+	if err := key.Set(jwk.AlgorithmKey, jwa.ES256); err != nil {
+		return nil, errors.Wrap(err, "Failed to set algorithm")
+	}
+
+	// Ensure key has an ID
+	if err := jwk.AssignKeyID(key); err != nil {
+		return nil, errors.Wrap(err, "Failed to assign key ID")
+	}
+
+	return key, nil
+}
+
+// Helper function to load all .pem files from specified directory
+func loadPEMFiles(dir string) error {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return errors.Wrap(err, "Failed to read directory that stores private keys")
+	}
+
+	for _, file := range files {
+		if filepath.Ext(file.Name()) != ".pem" {
+			continue
+		}
+
+		// Skip if the key is already loaded
+		if _, ok := issuerPrivateKeys.Load(file.Name()); ok {
+			continue
+		}
+
+		keyPath := filepath.Join(dir, file.Name())
+		key, err := loadSinglePEM(keyPath)
+		if err != nil {
+			log.Warnf("Failed to load key %s: %v", keyPath, err)
+			continue
+		}
+
+		issuerPrivateKeys.Store(file.Name(), key)
+		log.Debugf("Loaded the private key in %s into issuerPrivateKeys", file.Name())
+	}
+
+	return nil
+}
+
+// Helper function to check if a sync.Map is empty
+func isSyncMapEmpty(m *sync.Map) bool {
+	isEmpty := true
+	m.Range(func(key, value interface{}) bool {
+		isEmpty = false
+		return false
+	})
+	return isEmpty
+}
+
+// Helper function to create a new .pem file and add its key to issuerPrivateKeys
+func generateAndAddNewPrivateKey(dir string) (jwk.Key, error) {
+	filename := fmt.Sprintf("%d.pem", time.Now().Unix())
+	keyPath := filepath.Join(dir, filename)
+	if err := GeneratePrivateKey(keyPath, elliptic.P256(), false); err != nil {
+		return nil, errors.Wrap(err, "Failed to generate new private key")
+	}
+
+	key, err := loadSinglePEM(keyPath)
+	if err != nil {
+		log.Warnf("Failed to load key %s: %v", keyPath, err)
+	}
+
+	issuerPrivateKeys.Store(filename, key)
+	log.Debugf("Loaded the private key in %s into issuerPrivateKeys", filename)
+	return key, nil
+}
+
+// Helper function to get the most recent private key
+func getLatestPrivateKey() (jwk.Key, error) {
+	var (
+		latestKey            jwk.Key
+		latestKeyCreatedTime int64 = 0
+		validKeyFound        bool  = false
+	)
+
+	issuerPrivateKeys.Range(func(key, value interface{}) bool {
+		filename := key.(string)
+		// Parse the .pem file creation time from filename
+		var keyCreatedTimeStr string
+		pos := strings.Index(filename, ".pem")
+		if pos != -1 {
+			keyCreatedTimeStr = filename[:pos]
+		} else {
+			log.Warnf("Skipped file %s because it doesn't match the naming pattern", filename)
+		}
+		keyCreatedTime, err := strconv.ParseInt(keyCreatedTimeStr, 10, 64)
+		if err != nil {
+			log.Warnf("Cannot convert %s to number", keyCreatedTimeStr)
+		}
+		// Compare the timestamp of all keys to get the most recent one
+		if !validKeyFound || keyCreatedTime > latestKeyCreatedTime {
+			latestKey = value.(jwk.Key)
+			latestKeyCreatedTime = keyCreatedTime
+			validKeyFound = true
+		}
+		return true // return true to continue iterating
+	})
+
+	if !validKeyFound {
+		return nil, errors.New("No active key available")
+	}
+	log.Debugf("Current private key id: %s, PEM file in use: %d.pem", latestKey.KeyID(), latestKeyCreatedTime)
+
+	return latestKey, nil
+}
+
 // Helper function to load the issuer/server's private key to sign tokens it issues.
 // Only intended to be called internally
 func loadIssuerPrivateJWK(issuerKeyFile string) (jwk.Key, error) {
-	km := GetKeyManager()
-	if err := km.Initialize(); err != nil {
-		return nil, errors.Wrap(err, "Failed to initialize key manager")
+	defaultPrivateKeyDir := strings.Replace(param.IssuerKey.GetString(), "issuer.jwk", "private-keys", 1)
+	err := loadPEMFiles(defaultPrivateKeyDir)
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed to load .pem files")
 	}
 
-	key, err := km.GetActivePrivateKey()
+	if isSyncMapEmpty(&issuerPrivateKeys) {
+		generateAndAddNewPrivateKey(defaultPrivateKeyDir)
+	}
+
+	key, err := getLatestPrivateKey()
 	if err != nil {
-		return nil, errors.Wrap(err, "Failed to get active key")
+		return nil, errors.Wrap(err, "Failed to get the latest private key")
 	}
 
 	// Store the key in the in-memory cache

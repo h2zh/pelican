@@ -33,7 +33,6 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/pelicanplatform/pelican/config"
 	"github.com/pelicanplatform/pelican/launcher_utils"
 	"github.com/pelicanplatform/pelican/metrics"
 	"github.com/pelicanplatform/pelican/oa4mp"
@@ -102,8 +101,6 @@ func OriginServe(ctx context.Context, engine *gin.Engine, egrp *errgroup.Group, 
 	if err != nil {
 		return nil, err
 	}
-
-	config.LaunchPrivateKeysDirRefresh(ctx, egrp)
 
 	if param.Origin_SelfTest.GetBool() {
 		egrp.Go(func() error { return origin.PeriodicSelfTest(ctx) })
