@@ -75,6 +75,9 @@ func RegistryServe(ctx context.Context, engine *gin.Engine, egrp *errgroup.Group
 	// Launch registry prometheus metrics
 	registry.LaunchRegistryMetrics(ctx, egrp)
 
+	// Launch
+	config.LaunchIssuerKeysDirRefresh(ctx, egrp)
+
 	egrp.Go(func() error {
 		<-ctx.Done()
 		return registry.ShutdownRegistryDB()
