@@ -677,7 +677,7 @@ func LaunchIssuerKeysDirRefresh(ctx context.Context, egrp *errgroup.Group) {
 				log.Debugln("Stopping periodic check for private keys directory.")
 				return nil
 			case <-ticker.C:
-				if key, err := loadIssuerPrivateKey(param.IssuerKey.GetName()); err != nil {
+				if key, err := loadIssuerPrivateKey(param.IssuerKey.GetString()); err != nil {
 					log.Errorf("Error loading private keys: %v", err)
 				} else {
 					log.Debugln("Private keys directory refreshed successfully. The latest private key in use is", key.KeyID())
