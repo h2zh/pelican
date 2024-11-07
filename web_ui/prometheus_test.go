@@ -237,7 +237,7 @@ func TestPrometheusProtectionOriginHeaderScope(t *testing.T) {
 		}
 
 		// Create a new private key by re-initializing config to point at a new temp dir
-		k2file := filepath.Join(tDir, "testKey2")
+		k2file := filepath.Join(tDir, "whatever", "testKey2")
 		viper.Set("IssuerKey", k2file)
 		err = config.InitServer(ctx, server_structs.OriginType)
 		require.NoError(t, err)
