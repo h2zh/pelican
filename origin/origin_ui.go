@@ -21,6 +21,7 @@ package origin
 import (
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -161,10 +162,38 @@ func handleExports(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
+func createNewIssuerKey(ctx *gin.Context) {
+	issuerKeyDir := param.IssuerKey.GetString()
+	parentDir := filepath.Dir(issuerKeyDir)
+	defaultPrivateKeysDir := filepath.Join(parentDir, "issuer-keys")
+
+	_, err := config.GeneratePEM(defaultPrivateKeysDir)
+	if err != nil {
+		log.Errorf("Error creating and loading a new private key in a new .pem file: %v", err)
+		ctx.JSON(http.StatusInternalServerError, server_structs.SimpleApiResp{
+			Status: server_structs.RespFailed,
+			Msg:    "Error creating and loading a new private key in a new .pem file"})
+	}
+	_, err = config.RefreshActivePrivateKey()
+	if err != nil {
+		log.Errorf("Error retrieving latest private key: %v", err)
+		ctx.JSON(http.StatusInternalServerError, server_structs.SimpleApiResp{
+			Status: server_structs.RespFailed,
+			Msg:    "Error retrieving latest private key"})
+	}
+
+	ctx.JSON(http.StatusOK,
+		server_structs.SimpleApiResp{
+			Status: server_structs.RespOK,
+			Msg:    "success",
+		})
+}
+
 func RegisterOriginWebAPI(engine *gin.Engine) error {
 	originWebAPI := engine.Group("/api/v1.0/origin_ui")
 	{
 		originWebAPI.GET("/exports", web_ui.AuthHandler, web_ui.AdminAuthHandler, handleExports)
+		originWebAPI.GET("/newIssuerKey", web_ui.AuthHandler, web_ui.AdminAuthHandler, createNewIssuerKey)
 	}
 
 	// Globus backend specific. Config other origin routes above this line

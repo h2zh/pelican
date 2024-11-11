@@ -28,7 +28,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/pelicanplatform/pelican/param"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -149,4 +151,40 @@ func TestLoadPrivateKey(t *testing.T) {
 		assert.Contains(t, err.Error(), "RSA type private key in PKCS #8 form is not allowed for")
 		require.Nil(t, privateKey)
 	})
+}
+
+func TestLoadIssuerPrivateKey(t *testing.T) {
+	tempDir := t.TempDir()
+	issuerKeyDir := filepath.Join(tempDir, param.IssuerKey.GetString())
+
+	key, err := loadIssuerPrivateKey(issuerKeyDir)
+	require.NoError(t, err)
+	require.NotNil(t, key)
+}
+
+// This test also imitates the origin API endpoint "/newIssuerKey"
+func TestSecondPrivateKey(t *testing.T) {
+	tempDir := t.TempDir()
+	issuerKeyDir := filepath.Join(tempDir, param.IssuerKey.GetString())
+
+	key, err := loadIssuerPrivateKey(issuerKeyDir)
+	require.NoError(t, err)
+	require.NotNil(t, key)
+
+	// Wait for 1 second to avoid duplicated private key filenames
+	// because they are named after unix epoch timestamp
+	time.Sleep(1 * time.Second)
+
+	// Create another private key
+	parentDir := filepath.Dir(issuerKeyDir)
+	defaultPrivateKeysDir := filepath.Join(parentDir, "issuer-keys")
+	secondKey, err := GeneratePEM(defaultPrivateKeysDir)
+	require.NoError(t, err)
+	require.NotNil(t, secondKey)
+	assert.NotEqual(t, key.KeyID(), secondKey.KeyID())
+
+	// Check if the active private key points to the lastest key
+	latestKey, err := RefreshActivePrivateKey()
+	require.NoError(t, err)
+	assert.Equal(t, secondKey.KeyID(), latestKey.KeyID())
 }
