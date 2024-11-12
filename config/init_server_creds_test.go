@@ -178,13 +178,13 @@ func TestSecondPrivateKey(t *testing.T) {
 	// Create another private key
 	parentDir := filepath.Dir(issuerKeyDir)
 	defaultPrivateKeysDir := filepath.Join(parentDir, "issuer-keys")
-	secondKey, err := GeneratePEM(defaultPrivateKeysDir)
+	secondKey, err := GeneratePEMandSetActiveKey(defaultPrivateKeysDir)
 	require.NoError(t, err)
 	require.NotNil(t, secondKey)
 	assert.NotEqual(t, key.KeyID(), secondKey.KeyID())
 
 	// Check if the active private key points to the lastest key
-	latestKey, err := RefreshActivePrivateKey()
+	latestKey, err := GetIssuerPrivateJWK()
 	require.NoError(t, err)
 	assert.Equal(t, secondKey.KeyID(), latestKey.KeyID())
 }

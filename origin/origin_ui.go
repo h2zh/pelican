@@ -162,24 +162,18 @@ func handleExports(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
+// Create a new private key in the given directory and set it as the active key
 func createNewIssuerKey(ctx *gin.Context) {
 	issuerKeyDir := param.IssuerKey.GetString()
 	parentDir := filepath.Dir(issuerKeyDir)
 	defaultPrivateKeysDir := filepath.Join(parentDir, "issuer-keys")
 
-	_, err := config.GeneratePEM(defaultPrivateKeysDir)
+	_, err := config.GeneratePEMandSetActiveKey(defaultPrivateKeysDir)
 	if err != nil {
 		log.Errorf("Error creating and loading a new private key in a new .pem file: %v", err)
 		ctx.JSON(http.StatusInternalServerError, server_structs.SimpleApiResp{
 			Status: server_structs.RespFailed,
 			Msg:    "Error creating and loading a new private key in a new .pem file"})
-	}
-	_, err = config.RefreshActivePrivateKey()
-	if err != nil {
-		log.Errorf("Error retrieving latest private key: %v", err)
-		ctx.JSON(http.StatusInternalServerError, server_structs.SimpleApiResp{
-			Status: server_structs.RespFailed,
-			Msg:    "Error retrieving latest private key"})
 	}
 
 	ctx.JSON(http.StatusOK,

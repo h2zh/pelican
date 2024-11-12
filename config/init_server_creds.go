@@ -33,8 +33,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -65,6 +63,11 @@ var (
 // Reset the atomic pointer to issuer private jwk
 func ResetIssuerJWKPtr() {
 	issuerPrivateJWK.Store(nil)
+}
+
+// Set a private key as the active private key in use
+func SetActiveKey(key jwk.Key) {
+	issuerPrivateJWK.Store(&key)
 }
 
 // Clear all entries from the issuerPrivateKeys
@@ -553,21 +556,27 @@ func migratePrivateKey(newDir string) error {
 
 	// Create the destination directory if it doesn't exist
 	if err := os.MkdirAll(newDir, 0750); err != nil {
-		return errors.Wrapf(err, "Failed to create destination directory %s", newDir)
+		return errors.Wrapf(err, "failed to create destination directory %s", newDir)
+	}
+
+	// Get the key id of the existing key
+	key, err := loadSinglePEM(legacyPrivateKeyFile)
+	if err != nil {
+		log.Warnf("Failed to load key %s: %v", key.KeyID(), err)
 	}
 
 	// Rename the existing private key file using the naming pattern in new directory
-	fileName := fmt.Sprintf("%d.pem", time.Now().Unix())
+	fileName := fmt.Sprintf("%s.pem", key.KeyID())
 	destPath := filepath.Join(newDir, fileName)
 
 	// Check if a file with the same name already exists in the destination
 	if _, err := os.Stat(destPath); err == nil {
-		return errors.Errorf("Destination file already exists: %s", destPath)
+		return errors.Errorf("destination file already exists: %s", destPath)
 	}
 
 	// Move the file
 	if err := os.Rename(legacyPrivateKeyFile, destPath); err != nil {
-		return errors.Wrapf(err, "Failed to move %s to %s", legacyPrivateKeyFile, destPath)
+		return errors.Wrapf(err, "failed to move %s to %s", legacyPrivateKeyFile, destPath)
 	}
 
 	return nil
@@ -580,7 +589,7 @@ func initKeysMap(privateKeysDir string) error {
 
 	migrateErr := migratePrivateKey(privateKeysDir)
 	if migrateErr != nil {
-		return errors.Wrap(migrateErr, "Failed to migrate existing private key file")
+		return errors.Wrap(migrateErr, "failed to migrate existing private key file")
 	}
 	return nil
 }
@@ -589,65 +598,84 @@ func initKeysMap(privateKeysDir string) error {
 func loadSinglePEM(path string) (jwk.Key, error) {
 	contents, err := os.ReadFile(path)
 	if err != nil {
-		return nil, errors.Wrap(err, "Failed to read key file")
+		return nil, errors.Wrap(err, "failed to read key file")
 	}
 
 	key, err := jwk.ParseKey(contents, jwk.WithPEM(true))
 	if err != nil {
-		return nil, errors.Wrap(err, "Failed to parse key")
+		return nil, errors.Wrap(err, "failed to parse key")
 	}
 
 	// Add the algorithm to the key, needed for verifying tokens elsewhere
 	if err := key.Set(jwk.AlgorithmKey, jwa.ES256); err != nil {
-		return nil, errors.Wrap(err, "Failed to set algorithm")
+		return nil, errors.Wrap(err, "failed to set algorithm")
 	}
 
 	// Ensure key has an ID
 	if err := jwk.AssignKeyID(key); err != nil {
-		return nil, errors.Wrap(err, "Failed to assign key ID")
+		return nil, errors.Wrap(err, "failed to assign key ID")
 	}
 
 	return key, nil
 }
 
-// Helper function to load all .pem files from specified directory
-func loadPEMFiles(dir string) error {
+// Helper function to load/refresh all .pem files from specified directory and find the most recent modified private key
+func loadPEMFiles(dir string) (jwk.Key, error) {
+	var mostRecentKey jwk.Key
+	var mostRecentModTime time.Time
+
 	files, err := os.ReadDir(dir)
 	if err != nil {
 		// It's fine if error is "directory not found". We'll create this dir using GeneratePEM func
 		if os.IsNotExist(err) {
-			GeneratePEM(dir)
-			return nil
+			newKey, err := GeneratePEMandSetActiveKey(dir)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to create a new .pem file to save private key")
+			}
+			return newKey, nil
 		}
-		return errors.Wrap(err, "Failed to read directory that stores private keys")
+		return nil, errors.Wrap(err, "failed to read directory that stores private keys")
 	}
 
-	currentKeys := issuerPrivateKeys.Load()
+	latestKeys := make(map[string]jwk.Key)
 	for _, file := range files {
 		if filepath.Ext(file.Name()) != ".pem" {
 			continue
 		}
-
-		if currentKeys != nil {
-			if _, exists := (*currentKeys)[file.Name()]; exists {
-				continue // Skip if key already loaded
-			}
-		}
-
+		// parse the private key in this file and add to the in-memory keys map
 		keyPath := filepath.Join(dir, file.Name())
 		key, err := loadSinglePEM(keyPath)
 		if err != nil {
 			log.Warnf("Failed to load key %s: %v", keyPath, err)
 			continue
 		}
+		latestKeys[key.KeyID()] = key
 
-		newKeys := getIssuerPrivateKeysCopy()
-		newKeys[file.Name()] = key
-		issuerPrivateKeys.Store(&newKeys)
-		log.Debugf("Loaded the private key in %s into issuerPrivateKeys", file.Name())
+		// find the most recent modified file
+		fileInfo, err := file.Info()
+		if err != nil {
+			continue
+		}
+		if fileInfo.ModTime().After(mostRecentModTime) {
+			mostRecentModTime = fileInfo.ModTime()
+			mostRecentKey = key
+		}
+	}
+	// The directory exists but contains no .pem files
+	if len(latestKeys) == 0 {
+		newKey, err := GeneratePEMandSetActiveKey(dir)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create a new .pem file to save private key")
+		}
+		return newKey, nil
 	}
 
-	return nil
+	// Save up-to-date private keys and the active key in memory
+	issuerPrivateKeys.Store(&latestKeys)
+	SetActiveKey(mostRecentKey)
+	log.Debugf("Set private key %s as active", mostRecentKey.KeyID())
+
+	return mostRecentKey, nil
 }
 
 func isIssuerPrivateKeysEmpty() bool {
@@ -660,12 +688,11 @@ func isIssuerPrivateKeysEmpty() bool {
 
 // Create a new .pem file and add its key to issuerPrivateKeys
 // In other words, it combines GeneratePrivateKey and LoadPrivateKey functions
-// This function is used in origin API to let admin generate new private key
 func GeneratePEM(dir string) (jwk.Key, error) {
 	filename := fmt.Sprintf("%d.pem", time.Now().Unix())
 	keyPath := filepath.Join(dir, filename)
 	if err := GeneratePrivateKey(keyPath, elliptic.P256(), false); err != nil {
-		return nil, errors.Wrap(err, "Failed to generate new private key")
+		return nil, errors.Wrap(err, "failed to generate new private key")
 	}
 
 	key, err := loadSinglePEM(keyPath)
@@ -673,58 +700,31 @@ func GeneratePEM(dir string) (jwk.Key, error) {
 		log.Warnf("Failed to load key %s: %v", keyPath, err)
 	}
 
+	// Rename the file using its key.KeyID()
+	newFilename := fmt.Sprintf("%s.pem", key.KeyID())
+	newKeyPath := filepath.Join(dir, newFilename)
+	if err := os.Rename(keyPath, newKeyPath); err != nil {
+		return nil, errors.Wrap(err, "failed to rename private key file with KeyID")
+	}
+
+	// Save this new key in the in-memory map for all private keys
 	newKeys := getIssuerPrivateKeysCopy()
-	newKeys[filename] = key
+	newKeys[key.KeyID()] = key
 	issuerPrivateKeys.Store(&newKeys)
-	log.Debugf("Loaded the private key in %s into issuerPrivateKeys", filename)
+
+	log.Debugf("Loaded the private key (key id: %s) into issuerPrivateKeys and set as active key", key.KeyID())
 	return key, nil
 }
 
-// Helper function to get the most recent private key
-func getLatestPrivateKey() (jwk.Key, error) {
-	currentKeys := issuerPrivateKeys.Load()
-	if currentKeys == nil {
-		return nil, errors.New("No keys loaded in issuerPrivateKeys")
-	}
-	var (
-		latestKey            jwk.Key
-		latestKeyCreatedTime int64 = 0
-		validKeyFound        bool  = false
-	)
-
-	for filename, key := range *currentKeys {
-		// Parse the .pem file creation time from filename
-		keyCreatedTime, err := strconv.ParseInt(strings.TrimSuffix(filename, ".pem"), 10, 64)
-		if err != nil {
-			log.Warnf("Cannot convert %s to timestamp: %v", filename, err)
-			continue
-		}
-		// Compare the timestamp of all keys to get the most recent one
-		if !validKeyFound || keyCreatedTime > latestKeyCreatedTime {
-			latestKey = key
-			latestKeyCreatedTime = keyCreatedTime
-			validKeyFound = true
-		}
-	}
-
-	if !validKeyFound {
-		return nil, errors.New("No active key available")
-	}
-	log.Debugf("Current private key id: %s, PEM file in use: %d.pem", latestKey.KeyID(), latestKeyCreatedTime)
-
-	return latestKey, nil
-}
-
-// Refresh to get the latest private key and save it to issuerPrivateJWK
-func RefreshActivePrivateKey() (jwk.Key, error) {
-	key, err := getLatestPrivateKey()
+// Generate a new .pem file and then set the private key it contains as the active one
+// This function is also used in origin API to let admin generate new private key
+func GeneratePEMandSetActiveKey(dir string) (jwk.Key, error) {
+	newKey, err := GeneratePEM(dir)
 	if err != nil {
-		return nil, errors.Wrap(err, "Failed to get the latest private key")
+		return nil, errors.Wrapf(err, "failed to create a new .pem file to save private key")
 	}
-
-	// Store the active key in the in-memory cache
-	issuerPrivateJWK.Store(&key)
-	return key, nil
+	SetActiveKey(newKey)
+	return newKey, nil
 }
 
 // Helper function to load the issuer/server's private key to sign tokens it issues.
@@ -754,21 +754,15 @@ func loadIssuerPrivateKey(issuerKeyDir string) (jwk.Key, error) {
 		initErr = initKeysMap(defaultPrivateKeysDir)
 	})
 	if initErr != nil {
-		return nil, errors.Wrap(initErr, "Failed to initialize and/or migrate existing private key file")
+		return nil, errors.Wrap(initErr, "failed to initialize and/or migrate existing private key file")
 	}
 
-	err := loadPEMFiles(defaultPrivateKeysDir)
+	activeKey, err := loadPEMFiles(defaultPrivateKeysDir)
 	if err != nil {
-		return nil, errors.Wrap(err, "Failed to load .pem files")
+		return nil, errors.Wrap(err, "failed to load .pem files and find the most recent private key")
 	}
 
-	if isIssuerPrivateKeysEmpty() {
-		GeneratePEM(defaultPrivateKeysDir)
-	}
-
-	key, err := RefreshActivePrivateKey()
-
-	return key, err
+	return activeKey, err
 }
 
 // Helper function to load the issuer/server's public key for other servers
@@ -795,7 +789,7 @@ func loadIssuerPublicJWKS(existingJWKS string, issuerKeyDir string) (jwk.Set, er
 
 	pkey, err := jwk.PublicKeyOf(*key)
 	if err != nil {
-		return nil, errors.Wrapf(err, "Failed to generate public key from file %v", issuerKeyDir)
+		return nil, errors.Wrapf(err, "failed to generate public key from file %v", issuerKeyDir)
 	}
 
 	if err = jwks.AddKey(pkey); err != nil {
