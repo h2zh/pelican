@@ -33,6 +33,7 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/pelicanplatform/pelican/config"
 	"github.com/pelicanplatform/pelican/launcher_utils"
 	"github.com/pelicanplatform/pelican/metrics"
 	"github.com/pelicanplatform/pelican/oa4mp"
@@ -75,6 +76,10 @@ func OriginServe(ctx context.Context, engine *gin.Engine, egrp *errgroup.Group, 
 		}
 		origin.LaunchGlobusTokenRefresh(ctx, egrp)
 	}
+
+	// Start a routine to periodically refresh the private key directory.
+	// This ensures that new or updated private keys are automatically loaded
+	config.LaunchIssuerKeysDirRefresh(ctx, egrp)
 
 	// Set up the APIs unrelated to UI, which only contains director-based health test reporting endpoint for now
 	if err = origin.RegisterOriginAPI(engine, ctx, egrp); err != nil {
