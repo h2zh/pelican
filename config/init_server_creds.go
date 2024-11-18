@@ -678,14 +678,6 @@ func loadPEMFiles(dir string) (jwk.Key, error) {
 	return mostRecentKey, nil
 }
 
-func isIssuerPrivateKeysEmpty() bool {
-	currentKeys := issuerPrivateKeys.Load()
-	if currentKeys == nil {
-		return true // Map has not been initialized, so it's considered empty
-	}
-	return len(*currentKeys) == 0
-}
-
 // Create a new .pem file and add its key to issuerPrivateKeys
 // In other words, it combines GeneratePrivateKey and LoadPrivateKey functions
 func GeneratePEM(dir string) (jwk.Key, error) {
