@@ -565,8 +565,8 @@ func migratePrivateKey(newDir string) error {
 		log.Warnf("Failed to load key %s: %v", key.KeyID(), err)
 	}
 
-	// Set destination path
-	fileName := filepath.Base(legacyPrivateKeyFile)
+	// Rename the existing private key file and set destination path
+	fileName := "initial_issuer.pem"
 	destPath := filepath.Join(newDir, fileName)
 
 	// Check if a file with the same name already exists in the destination
