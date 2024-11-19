@@ -30,11 +30,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pelicanplatform/pelican/param"
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pelicanplatform/pelican/param"
 )
 
 // encrypt should be ecdsa|rsa

@@ -75,7 +75,7 @@ components: ["client", "registry", "director"]
 ---
 name: IssuerKeysDirectory
 description: |+
-  A filepath to the directory used for storing one or multiple PEM-encoded ecdsa private keys. The most recent modified 
+  A filepath to the directory used for storing one or multiple PEM-encoded ecdsa private keys. The most recent modified
   private key will be parsed into a JWK and serves as the active private key to sign various JWTs issued by this server.
 
   A public JWK will be derived from this private key and used as the key for token verification.
