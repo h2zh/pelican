@@ -32,6 +32,7 @@ import (
 
 	"github.com/pelicanplatform/pelican/param"
 	"github.com/pkg/errors"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -153,38 +154,43 @@ func TestLoadPrivateKey(t *testing.T) {
 	})
 }
 
-func TestLoadIssuerPrivateKey(t *testing.T) {
-	tempDir := t.TempDir()
-	issuerKeyDir := filepath.Join(tempDir, param.IssuerKey.GetString())
+func TestMultiPrivateKey(t *testing.T) {
+	t.Run("generate-and-load-single-key", func(t *testing.T) {
+		ResetConfig()
+		defer ResetConfig()
+		tempDir := t.TempDir()
+		issuerKeysDir := filepath.Join(tempDir, "issuer-keys")
 
-	key, err := loadIssuerPrivateKey(issuerKeyDir)
-	require.NoError(t, err)
-	require.NotNil(t, key)
-}
+		key, err := loadIssuerPrivateKey(issuerKeysDir)
+		require.NoError(t, err)
+		require.NotNil(t, key)
+	})
 
-// This test also imitates the origin API endpoint "/newIssuerKey"
-func TestSecondPrivateKey(t *testing.T) {
-	tempDir := t.TempDir()
-	issuerKeyDir := filepath.Join(tempDir, param.IssuerKey.GetString())
+	// This test also imitates the origin API endpoint "/newIssuerKey"
+	t.Run("second-private-key", func(t *testing.T) {
+		ResetConfig()
+		defer ResetConfig()
+		tempDir := t.TempDir()
+		issuerKeysDir := filepath.Join(tempDir, "issuer-keys")
 
-	key, err := loadIssuerPrivateKey(issuerKeyDir)
-	require.NoError(t, err)
-	require.NotNil(t, key)
+		key, err := loadIssuerPrivateKey(issuerKeysDir)
+		require.NoError(t, err)
+		require.NotNil(t, key)
 
-	// Wait for 1 second to avoid duplicated private key filenames
-	// because they are named after unix epoch timestamp
-	time.Sleep(1 * time.Second)
+		// Wait for 1 second to avoid duplicated private key filenames
+		// because they are named after unix epoch timestamp
+		time.Sleep(1 * time.Second)
 
-	// Create another private key
-	parentDir := filepath.Dir(issuerKeyDir)
-	defaultPrivateKeysDir := filepath.Join(parentDir, "issuer-keys")
-	secondKey, err := GeneratePEMandSetActiveKey(defaultPrivateKeysDir)
-	require.NoError(t, err)
-	require.NotNil(t, secondKey)
-	assert.NotEqual(t, key.KeyID(), secondKey.KeyID())
+		// Create another private key
+		secondKey, err := GeneratePEMandSetActiveKey(issuerKeysDir)
+		require.NoError(t, err)
+		require.NotNil(t, secondKey)
+		assert.NotEqual(t, key.KeyID(), secondKey.KeyID())
 
-	// Check if the active private key points to the lastest key
-	latestKey, err := GetIssuerPrivateJWK()
-	require.NoError(t, err)
-	assert.Equal(t, secondKey.KeyID(), latestKey.KeyID())
+		// Check if the active private key points to the lastest key
+		viper.Set(param.IssuerKeysDirectory.GetName(), issuerKeysDir)
+		latestKey, err := GetIssuerPrivateJWK()
+		require.NoError(t, err)
+		assert.Equal(t, secondKey.KeyID(), latestKey.KeyID())
+	})
 }

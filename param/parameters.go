@@ -163,6 +163,7 @@ var (
 	Federation_TopologyNamespaceUrl = StringParam{"Federation.TopologyNamespaceUrl"}
 	Federation_TopologyUrl = StringParam{"Federation.TopologyUrl"}
 	IssuerKey = StringParam{"IssuerKey"}
+	IssuerKeysDirectory = StringParam{"IssuerKeysDirectory"}
 	Issuer_AuthenticationSource = StringParam{"Issuer.AuthenticationSource"}
 	Issuer_GroupFile = StringParam{"Issuer.GroupFile"}
 	Issuer_GroupSource = StringParam{"Issuer.GroupSource"}

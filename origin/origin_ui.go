@@ -21,7 +21,6 @@ package origin
 import (
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -164,11 +163,9 @@ func handleExports(ctx *gin.Context) {
 
 // Create a new private key in the given directory and set it as the active key
 func createNewIssuerKey(ctx *gin.Context) {
-	issuerKeyDir := param.IssuerKey.GetString()
-	parentDir := filepath.Dir(issuerKeyDir)
-	defaultPrivateKeysDir := filepath.Join(parentDir, "issuer-keys")
+	issuerKeysDir := param.IssuerKeysDirectory.GetString()
 
-	_, err := config.GeneratePEMandSetActiveKey(defaultPrivateKeysDir)
+	_, err := config.GeneratePEMandSetActiveKey(issuerKeysDir)
 	if err != nil {
 		log.Errorf("Error creating and loading a new private key in a new .pem file: %v", err)
 		ctx.JSON(http.StatusInternalServerError, server_structs.SimpleApiResp{

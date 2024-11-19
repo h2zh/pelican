@@ -677,7 +677,7 @@ func LaunchIssuerKeysDirRefresh(ctx context.Context, egrp *errgroup.Group) {
 				log.Debugln("Stopping periodic check for private keys directory.")
 				return nil
 			case <-ticker.C:
-				if key, err := loadIssuerPrivateKey(param.IssuerKey.GetString()); err != nil {
+				if key, err := loadIssuerPrivateKey(param.IssuerKeysDirectory.GetString()); err != nil {
 					log.Errorf("Error loading private keys: %v", err)
 				} else {
 					log.Debugln("Private keys directory refreshed successfully. The latest private key in use is", key.KeyID())
@@ -959,6 +959,7 @@ func SetServerDefaults(v *viper.Viper) error {
 	v.SetDefault(param.Xrootd_Authfile.GetName(), filepath.Join(configDir, "xrootd", "authfile"))
 	v.SetDefault(param.Xrootd_MacaroonsKeyFile.GetName(), filepath.Join(configDir, "macaroons-secret"))
 	v.SetDefault(param.IssuerKey.GetName(), filepath.Join(configDir, "issuer.jwk"))
+	v.SetDefault(param.IssuerKeysDirectory.GetName(), filepath.Join(configDir, "issuer-keys"))
 	v.SetDefault(param.Server_UIPasswordFile.GetName(), filepath.Join(configDir, "server-web-passwd"))
 	v.SetDefault(param.Server_UIActivationCodeFile.GetName(), filepath.Join(configDir, "server-web-activation-code"))
 	v.SetDefault(param.OIDC_ClientIDFile.GetName(), filepath.Join(configDir, "oidc-client-id"))
@@ -1424,6 +1425,8 @@ func SetClientDefaults(v *viper.Viper) error {
 	configDir := v.GetString("ConfigDir")
 
 	v.SetDefault(param.IssuerKey.GetName(), filepath.Join(configDir, "issuer.jwk"))
+	v.SetDefault(param.IssuerKeysDirectory.GetName(), filepath.Join(configDir, "issuer-keys"))
+
 	upperPrefix := GetPreferredPrefix()
 	if upperPrefix == OsdfPrefix || upperPrefix == StashPrefix {
 		v.SetDefault("Federation.TopologyNamespaceURL", "https://topology.opensciencegrid.org/osdf/namespaces")
