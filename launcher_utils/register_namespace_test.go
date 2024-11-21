@@ -59,6 +59,8 @@ func TestRegistration(t *testing.T) {
 
 	server_utils.ResetTestState()
 	viper.Set("ConfigDir", tempConfigDir)
+	keysDir := filepath.Join(tempConfigDir, "issuer-keys")
+	viper.Set(param.IssuerKeysDirectory.GetName(), keysDir)
 
 	config.InitConfig()
 	viper.Set("Registry.DbLocation", filepath.Join(tempConfigDir, "test.sql"))

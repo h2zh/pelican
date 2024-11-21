@@ -226,32 +226,49 @@ func registerNamespacePrep(ctx context.Context, prefix string) (key jwk.Key, reg
 		err = errors.Wrap(err, "Failed to construct registration endpoint URL: %v")
 		return
 	}
-	key, err = config.GetIssuerPrivateJWK()
-	if err != nil {
-		err = errors.Wrap(err, "failed to load the origin's JWK")
+	privateKeys := config.GetIssuerPrivateKeys()
+	if len(privateKeys) == 0 {
+		err = errors.Wrap(err, "failed to load the origin's private key(s)")
 		return
 	}
-	if key.KeyID() == "" {
-		if err = jwk.AssignKeyID(key); err != nil {
-			err = errors.Wrap(err, "Error when generating a key ID for registration")
-			return
+	// Traverse each private key provided by the origin to see if it is registered
+	var misMatchCount int
+	for _, privateKey := range privateKeys {
+		if privateKey.KeyID() == "" {
+			if err = jwk.AssignKeyID(privateKey); err != nil {
+				err = errors.Wrap(err, "Error when generating a key ID for registration")
+				return
+			}
+		}
+
+		keyStatus, err := keyIsRegistered(privateKey, registrationUrl, prefix)
+		if err != nil {
+			err = errors.Wrap(err, "Failed to determine whether namespace is already registered")
+			break
+		}
+		switch keyStatus {
+		case keyMatch:
+			isRegistered = true
+		case keyMismatch:
+			misMatchCount += 1
+		case noKeyPresent:
+			log.Infof("Namespace %v not registered; new registration will proceed\n", prefix)
 		}
 	}
-	keyStatus, err := keyIsRegistered(key, registrationUrl, prefix)
-	if err != nil {
-		err = errors.Wrap(err, "Failed to determine whether namespace is already registered")
-		return
-	}
-	switch keyStatus {
-	case keyMatch:
-		isRegistered = true
-		return
-	case keyMismatch:
+	// All private keys from the origin mismatch the registered public key in registry db,
+	// meaning this origin don't have the credentials to own the namespace they claim
+	if misMatchCount == len(privateKeys) {
 		err = errors.Errorf("Namespace %v already registered under a different key", prefix)
 		return
-	case noKeyPresent:
-		log.Infof("Namespace %v not registered; new registration will proceed\n", prefix)
 	}
+	// Else, which means there is at least one private key from the origin match the registered public key,
+	// we will update the public key of the namespace in registry db with the active private key
+	// held by this origin
+	key, err = config.GetIssuerPrivateJWK()
+	if err != nil {
+		err = errors.Wrap(err, "Failed to obtain origin's active private key")
+	}
+
 	return
 }
 

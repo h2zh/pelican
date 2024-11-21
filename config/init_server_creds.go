@@ -50,10 +50,10 @@ var (
 	// the same if the IssuerKey is unchanged
 	issuerPrivateJWK atomic.Pointer[jwk.Key]
 
-	// Representing all private keys (.pem files) in the directory
+	// Representing private keys (from all .pem files) in the directory cache
 	issuerPrivateKeys atomic.Pointer[map[string]jwk.Key]
 
-	// Record the value of "issuerKey" param in case it changes during runtime
+	// Record the value of "IssuerKeysDirectory" param in case it changes during runtime
 	currentIssuerKeysDir atomic.Value
 
 	// Used to ensure initialization func init() is only called once
@@ -86,6 +86,12 @@ func getIssuerPrivateKeysCopy() map[string]jwk.Key {
 		}
 	}
 	return newMap
+}
+
+// Read the current map
+func GetIssuerPrivateKeys() map[string]jwk.Key {
+	keysPtr := issuerPrivateKeys.Load()
+	return *keysPtr
 }
 
 func getCurrentIssuerKeysDir() string {
