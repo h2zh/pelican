@@ -43,6 +43,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/pelicanplatform/pelican/param"
+	"github.com/pelicanplatform/pelican/utils"
 )
 
 var (
@@ -569,10 +570,11 @@ func migratePrivateKey(newDir string) error {
 	key, err := loadSinglePEM(legacyPrivateKeyFile)
 	if err != nil {
 		log.Warnf("Failed to load key %s: %v", key.KeyID(), err)
+		return err
 	}
 
 	// Rename the existing private key file and set destination path
-	fileName := "initial_issuer.pem"
+	fileName := "migrated_key.pem"
 	destPath := filepath.Join(newDir, fileName)
 
 	// Check if a file with the same name already exists in the destination
@@ -592,6 +594,7 @@ func migratePrivateKey(newDir string) error {
 func initKeysMap(privateKeysDir string) error {
 	initialMap := make(map[string]jwk.Key)
 	issuerPrivateKeys.Store(&initialMap)
+	setCurrentIssuerKeysDir(privateKeysDir)
 
 	migrateErr := migratePrivateKey(privateKeysDir)
 	if migrateErr != nil {
@@ -643,7 +646,7 @@ func loadPEMFiles(dir string) (jwk.Key, error) {
 		return nil, errors.Wrap(err, "failed to read directory that stores private keys")
 	}
 
-	latestKeys := make(map[string]jwk.Key)
+	latestKeys := getIssuerPrivateKeysCopy()
 	for _, file := range files {
 		if filepath.Ext(file.Name()) != ".pem" {
 			continue
@@ -687,7 +690,10 @@ func loadPEMFiles(dir string) (jwk.Key, error) {
 // Create a new .pem file and add its key to issuerPrivateKeys
 // In other words, it combines GeneratePrivateKey and LoadPrivateKey functions
 func GeneratePEM(dir string) (jwk.Key, error) {
-	filename := fmt.Sprintf("pelican_generated_%d.pem", time.Now().Unix())
+	filename := fmt.Sprintf("pelican_generated_%d_%s.pem",
+		time.Now().UnixNano(),
+		utils.CreateRandomString(4))
+
 	keyPath := filepath.Join(dir, filename)
 	if err := GeneratePrivateKey(keyPath, elliptic.P256(), false); err != nil {
 		return nil, errors.Wrap(err, "failed to generate new private key")
@@ -699,9 +705,9 @@ func GeneratePEM(dir string) (jwk.Key, error) {
 	}
 
 	// Save this new key in the in-memory map for all private keys
-	newKeys := getIssuerPrivateKeysCopy()
-	newKeys[key.KeyID()] = key
-	issuerPrivateKeys.Store(&newKeys)
+	keysCopy := getIssuerPrivateKeysCopy()
+	keysCopy[key.KeyID()] = key
+	issuerPrivateKeys.Store(&keysCopy)
 
 	log.Debugf("Loaded the private key (key id: %s) into issuerPrivateKeys and set as active key", key.KeyID())
 	return key, nil
@@ -720,7 +726,7 @@ func GeneratePEMandSetActiveKey(dir string) (jwk.Key, error) {
 
 // Helper function to load the issuer/server's private key to sign tokens it issues.
 // Only intended to be called internally
-func loadIssuerPrivateKey(issuerKeysDir string) (jwk.Key, error) {
+func LoadIssuerPrivateKey(issuerKeysDir string) (jwk.Key, error) {
 	// Ensure initKeysMap is only called once across the program’s runtime
 	var initErr error
 	initOnce.Do(func() {
@@ -753,7 +759,7 @@ func loadIssuerPublicJWKS(existingJWKS string, issuerKeysDir string) (jwk.Set, e
 	if key == nil {
 		// This returns issuerPrivateJWK if it's non-nil, or find and parse private JWK
 		// located at IssuerKeysDirectory if there is one, or generate a new private key
-		loadedKey, err := loadIssuerPrivateKey(issuerKeysDir)
+		loadedKey, err := LoadIssuerPrivateKey(issuerKeysDir)
 		if err != nil {
 			return nil, errors.Wrap(err, "Failed to load issuer private JWK")
 		}
@@ -792,7 +798,7 @@ func GetIssuerPrivateJWK() (jwk.Key, error) {
 	}
 
 	if key == nil || isDirChanged {
-		newKey, err := loadIssuerPrivateKey(issuerKeysDir)
+		newKey, err := LoadIssuerPrivateKey(issuerKeysDir)
 		if err != nil {
 			return nil, errors.Wrap(err, "Failed to load issuer private key")
 		}

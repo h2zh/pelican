@@ -44,6 +44,35 @@ import (
 	"github.com/pelicanplatform/pelican/xrootd"
 )
 
+// Check the directory containing .pem files every 5 minutes, load new private key(s)
+// if new file(s) are detected, then register the new public key
+func launchIssuerKeysDirRefresh(ctx context.Context, egrp *errgroup.Group) {
+	egrp.Go(func() error {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				log.Debugln("Stopping periodic check for private keys directory.")
+				return nil
+			case <-ticker.C:
+				extUrlStr := param.Server_ExternalWebUrl.GetString()
+				extUrl, _ := url.Parse(extUrlStr)
+				namespace := server_structs.GetOriginNs(extUrl.Host)
+				if err := launcher_utils.RegisterNamespaceWithRetry(ctx, egrp, namespace); err != nil {
+					log.Errorf("Error refreshing private keys: %v", err)
+				} else {
+					if key, err := config.GetIssuerPrivateJWK(); err != nil {
+						log.Debugln("Private keys directory refreshed successfully. The active (latest) private key is", key.KeyID())
+					}
+				}
+
+			}
+		}
+	})
+}
+
 func OriginServe(ctx context.Context, engine *gin.Engine, egrp *errgroup.Group, modules server_structs.ServerType) (server_structs.XRootDServer, error) {
 	metrics.SetComponentHealthStatus(metrics.OriginCache_XRootD, metrics.StatusWarning, "XRootD is initializing")
 	metrics.SetComponentHealthStatus(metrics.OriginCache_CMSD, metrics.StatusWarning, "CMSD is initializting")
@@ -78,8 +107,8 @@ func OriginServe(ctx context.Context, engine *gin.Engine, egrp *errgroup.Group, 
 	}
 
 	// Start a routine to periodically refresh the private key directory.
-	// This ensures that new or updated private keys are automatically loaded
-	config.LaunchIssuerKeysDirRefresh(ctx, egrp)
+	// This ensures that new or updated private keys are automatically loaded and registered
+	launchIssuerKeysDirRefresh(ctx, egrp)
 
 	// Set up the APIs unrelated to UI, which only contains director-based health test reporting endpoint for now
 	if err = origin.RegisterOriginAPI(engine, ctx, egrp); err != nil {

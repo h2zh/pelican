@@ -382,7 +382,15 @@ func AddNamespace(ns *server_structs.Namespace) error {
 	if ns.AdminMetadata.Status == "" {
 		ns.AdminMetadata.Status = server_structs.RegPending
 	}
-
+	set, err := jwk.ParseString(ns.Pubkey)
+	if err != nil {
+		log.Debugln("can't parse pubkey in string", err.Error())
+	}
+	key, ok := set.Key(0)
+	if !ok {
+		log.Debugln("can't get pubkey", err.Error())
+	}
+	log.Debugln("this is the keyID i want to check: ", key.KeyID())
 	return db.Save(&ns).Error
 }
 

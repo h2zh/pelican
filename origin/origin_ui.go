@@ -176,7 +176,7 @@ func createNewIssuerKey(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK,
 		server_structs.SimpleApiResp{
 			Status: server_structs.RespOK,
-			Msg:    "success",
+			Msg:    "Created a new issuer key and set it as the active private key",
 		})
 }
 

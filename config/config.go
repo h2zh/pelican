@@ -665,29 +665,6 @@ func checkWatermark(wmStr string) (bool, int64, error) {
 	}
 }
 
-// Checks the directory containing .pem files every 5 minutes and loads new private key(s) if new file(s) are detected
-func LaunchIssuerKeysDirRefresh(ctx context.Context, egrp *errgroup.Group) {
-	egrp.Go(func() error {
-		ticker := time.NewTicker(5 * time.Minute)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				log.Debugln("Stopping periodic check for private keys directory.")
-				return nil
-			case <-ticker.C:
-				if key, err := loadIssuerPrivateKey(param.IssuerKeysDirectory.GetString()); err != nil {
-					log.Errorf("Error loading private keys: %v", err)
-				} else {
-					log.Debugln("Private keys directory refreshed successfully. The latest private key in use is", key.KeyID())
-				}
-
-			}
-		}
-	})
-}
-
 func setupTranslation() error {
 	err := en_translations.RegisterDefaultTranslations(validate, GetEnTranslator())
 	if err != nil {

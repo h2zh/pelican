@@ -226,6 +226,8 @@ func registerNamespacePrep(ctx context.Context, prefix string) (key jwk.Key, reg
 		err = errors.Wrap(err, "Failed to construct registration endpoint URL: %v")
 		return
 	}
+
+	// Get in-memory private keys to check if any of them matches the registered public key
 	privateKeys := config.GetIssuerPrivateKeys()
 	if len(privateKeys) == 0 {
 		err = errors.Wrap(err, "failed to load the origin's private key(s)")
@@ -261,10 +263,10 @@ func registerNamespacePrep(ctx context.Context, prefix string) (key jwk.Key, reg
 		err = errors.Errorf("Namespace %v already registered under a different key", prefix)
 		return
 	}
-	// Else, which means there is at least one private key from the origin match the registered public key,
+	// Else, there is at least one private key from the origin match the registered public key,
 	// we will update the public key of the namespace in registry db with the active private key
-	// held by this origin
-	key, err = config.GetIssuerPrivateJWK()
+	// held by this origin; the verified new private key also get added to in-memory map in this process
+	key, err = config.LoadIssuerPrivateKey(param.IssuerKeysDirectory.GetString())
 	if err != nil {
 		err = errors.Wrap(err, "Failed to obtain origin's active private key")
 	}
@@ -300,7 +302,7 @@ func RegisterNamespaceWithRetry(ctx context.Context, egrp *errgroup.Group, prefi
 		if err := origin.FetchAndSetRegStatus(prefix); err != nil {
 			return errors.Wrapf(err, "failed to fetch registration status for the prefix %s", prefix)
 		}
-		return nil
+		// continue to update the public key of this prefix
 	}
 
 	if err = registerNamespaceImpl(key, prefix, siteName, url); err == nil {
