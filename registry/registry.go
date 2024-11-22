@@ -292,11 +292,42 @@ func keySignChallengeCommit(ctx *gin.Context, data *registrationData) (bool, map
 			return false, nil, errors.Wrap(err, "Server encountered an error checking if namespace already exists")
 		}
 		if exists {
-			returnMsg := map[string]interface{}{
-				"message": fmt.Sprintf("The prefix %s is already registered -- nothing else to do!", data.Prefix),
+			// Update the namespace's public key with the latest one
+			// when origin provides a new key (the origin is authorized to do that in upstream code)
+			existingNs, err := getNamespaceByPrefix(data.Prefix)
+			if err != nil {
+				log.Errorf("Failed to get existing namespace to update: %v", err)
+				return false, nil, errors.Wrap(err, "Server encountered an error getting existing namespace to update")
 			}
-			log.Infof("Skipping registration of prefix %s because it's already registered.", data.Prefix)
-			return false, returnMsg, nil
+			log.Debugf("New public key %s is going to replace the old one: %s", string(data.Pubkey), existingNs.Pubkey)
+
+			// Process origin's new public key
+			pubkeyData, err := json.Marshal(data.Pubkey)
+			if err != nil {
+				return false, nil, errors.Wrapf(err, "Failed to convert public key from json to string format for the prefix %s", data.Prefix)
+			}
+			pubkeyDbString := string(pubkeyData)
+
+			// Perform the update action when origin provides a new key
+			if pubkeyDbString != existingNs.Pubkey {
+				err = updateNamespacePubKey(data.Prefix, pubkeyDbString)
+				if err != nil {
+					log.Errorf("Failed to update the public key of namespace %s: %v", data.Prefix, err)
+					return false, nil, errors.Wrap(err, "Server encountered an error updating the public key of an existing namespace")
+				}
+				// Skip the rest steps in namesapce initial registration
+				returnMsg := map[string]interface{}{
+					"message": fmt.Sprintf("Updated the public key of namespace %s:", data.Prefix),
+				}
+				log.Infof("Updated the public key of namespace %s:", data.Prefix)
+				return false, returnMsg, nil
+			} else {
+				returnMsg := map[string]interface{}{
+					"message": fmt.Sprintf("The prefix %s is already registered -- nothing else to do!", data.Prefix),
+				}
+				log.Infof("Skipping registration of prefix %s because it's already registered.", data.Prefix)
+				return false, returnMsg, nil
+			}
 		}
 
 		reqPrefix, err := validatePrefix(data.Prefix)
