@@ -161,16 +161,18 @@ func handleExports(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-// Create a new private key in the given directory and set it as the active key
+// Create a new private key in the given directory, but without loading it immediately
+// This new key will be detected and loaded later by the ongoing goroutine `LaunchIssuerKeysDirRefresh`,
+// which periodically refreshes the keys in the issuer keys directory
 func createNewIssuerKey(ctx *gin.Context) {
 	issuerKeysDir := param.IssuerKeysDirectory.GetString()
 
-	_, err := config.GeneratePEMandSetActiveKey(issuerKeysDir)
+	_, err := config.GeneratePEM(issuerKeysDir)
 	if err != nil {
-		log.Errorf("Error creating and loading a new private key in a new .pem file: %v", err)
+		log.Errorf("Error creating a new private key in a new .pem file: %v", err)
 		ctx.JSON(http.StatusInternalServerError, server_structs.SimpleApiResp{
 			Status: server_structs.RespFailed,
-			Msg:    "Error creating and loading a new private key in a new .pem file"})
+			Msg:    "Error creating a new private key in a new .pem file"})
 	}
 
 	ctx.JSON(http.StatusOK,

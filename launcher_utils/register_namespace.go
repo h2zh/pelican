@@ -40,6 +40,7 @@ import (
 	"github.com/pelicanplatform/pelican/param"
 	"github.com/pelicanplatform/pelican/registry"
 	"github.com/pelicanplatform/pelican/server_structs"
+	"github.com/pelicanplatform/pelican/server_utils"
 )
 
 type (
@@ -243,12 +244,13 @@ func registerNamespacePrep(ctx context.Context, prefix string) (key jwk.Key, reg
 			}
 		}
 
-		keyStatus, err := keyIsRegistered(privateKey, registrationUrl, prefix)
+		var keyStatusVar keyStatus
+		keyStatusVar, err = keyIsRegistered(privateKey, registrationUrl, prefix)
 		if err != nil {
 			err = errors.Wrap(err, "Failed to determine whether namespace is already registered")
-			break
+			return
 		}
-		switch keyStatus {
+		switch keyStatusVar {
 		case keyMatch:
 			isRegistered = true
 		case keyMismatch:
@@ -263,7 +265,7 @@ func registerNamespacePrep(ctx context.Context, prefix string) (key jwk.Key, reg
 		err = errors.Errorf("Namespace %v already registered under a different key", prefix)
 		return
 	}
-	// Else, there is at least one private key from the origin match the registered public key,
+	// If there is at least one private key from the origin match the registered public key,
 	// we will update the public key of the namespace in registry db with the active private key
 	// held by this origin; the verified new private key also get added to in-memory map in this process
 	key, err = config.LoadIssuerPrivateKey(param.IssuerKeysDirectory.GetString())
@@ -331,4 +333,42 @@ func RegisterNamespaceWithRetry(ctx context.Context, egrp *errgroup.Group, prefi
 		}
 	})
 	return nil
+}
+
+// Check the directory containing .pem files every 5 minutes, load new private key(s)
+// if new file(s) are detected, then register the new public key
+func LaunchIssuerKeysDirRefresh(ctx context.Context, egrp *errgroup.Group) {
+	egrp.Go(func() error {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				log.Debugln("Stopping periodic check for private keys directory.")
+				return nil
+			case <-ticker.C:
+				extUrlStr := param.Server_ExternalWebUrl.GetString()
+				extUrl, _ := url.Parse(extUrlStr)
+				namespace := server_structs.GetOriginNs(extUrl.Host)
+				if err := RegisterNamespaceWithRetry(ctx, egrp, namespace); err != nil {
+					log.Errorf("Error refreshing private keys: %v", err)
+				}
+
+				originExports, err := server_utils.GetOriginExports()
+				if err != nil {
+					return err
+				}
+				for _, export := range originExports {
+					if err := RegisterNamespaceWithRetry(ctx, egrp, export.FederationPrefix); err != nil {
+						return err
+					}
+				}
+
+				if key, err := config.GetIssuerPrivateJWK(); err != nil {
+					log.Debugln("Private keys directory refreshed successfully. The active (latest) private key is", key.KeyID())
+				}
+			}
+		}
+	})
 }

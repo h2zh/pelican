@@ -231,6 +231,7 @@ func TestMultiKeysRegistration(t *testing.T) {
 	secondPubKey, err := secondKey.PublicKey()
 	require.NoError(t, err)
 	activeKey, err := config.GetIssuerPrivateJWK()
+	require.NoError(t, err)
 	require.Equal(t, secondKey, activeKey)
 	keysMap = config.GetIssuerPrivateKeys()
 	require.Equal(t, secondKey, keysMap[secondKey.KeyID()])

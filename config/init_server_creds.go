@@ -724,8 +724,7 @@ func GeneratePEMandSetActiveKey(dir string) (jwk.Key, error) {
 	return newKey, nil
 }
 
-// Helper function to load the issuer/server's private key to sign tokens it issues.
-// Only intended to be called internally
+// Re-scan the disk to load the issuer/server's private keys, return the active key to sign tokens it issues
 func LoadIssuerPrivateKey(issuerKeysDir string) (jwk.Key, error) {
 	// Ensure initKeysMap is only called once across the program’s runtime
 	var initErr error
