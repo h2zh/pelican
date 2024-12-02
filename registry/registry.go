@@ -101,6 +101,7 @@ type registrationData struct {
 	ServerSignature string `json:"server_signature"`
 
 	Pubkey           json.RawMessage `json:"pubkey"`
+	AllPubkeys       json.RawMessage `json:"all_pubkeys"`
 	Prefix           string          `json:"prefix"`
 	SiteName         string          `json:"site_name"`
 	AccessToken      string          `json:"access_token"`
@@ -259,6 +260,7 @@ func keySignChallengeCommit(ctx *gin.Context, data *registrationData) (bool, map
 		return false, nil, errors.Wrap(err, "failed to generate raw pubkey from jwks")
 	}
 
+	// Verify client and server private keys' Proof of Possesion
 	clientPayload := []byte(data.ClientNonce + data.ServerNonce)
 	clientSignature, err := hex.DecodeString(data.ClientSignature)
 	if err != nil {
@@ -292,13 +294,70 @@ func keySignChallengeCommit(ctx *gin.Context, data *registrationData) (bool, map
 			return false, nil, errors.Wrap(err, "Server encountered an error checking if namespace already exists")
 		}
 		if exists {
-			// Update the namespace's public key with the latest one
-			// when origin provides a new key (the origin is authorized to do that in upstream code)
+			// Update the namespace's public key with the latest one when authorized origin provides a new key
 			existingNs, err := getNamespaceByPrefix(data.Prefix)
 			if err != nil {
 				log.Errorf("Failed to get existing namespace to update: %v", err)
 				return false, nil, errors.Wrap(err, "Server encountered an error getting existing namespace to update")
 			}
+
+			// Check the origin is authorized to update (possessing the public key used for prefix initial registration)
+			// Parse all public keys of the sender into a JWKS
+			clientKeySet, err := jwk.Parse(data.AllPubkeys)
+			if err != nil {
+				log.Errorf("Failed to parse in-memory public keys of the client: %v", err)
+				return false, nil, errors.Wrapf(err, "Invalid in-memory public keys format of the client")
+			}
+			// Parse `existingNs.Pubkey` as a JWKS
+			existingKeySet := jwk.NewSet()
+			err = json.Unmarshal([]byte(existingNs.Pubkey), &existingKeySet)
+			if err != nil {
+				log.Errorf("Failed to parse existing namespace public key as JWKS: %v", err)
+				return false, nil, errors.Wrap(err, "Invalid existing namespace public key format")
+			}
+
+			// Check if any key in `clientKeySet` matches a key in `existingKeySet`
+			ctx := context.Background()
+			existingKeysIter := existingKeySet.Keys(ctx)
+			clientKeysIter := clientKeySet.Keys(ctx)
+			matchFound := false
+
+			for existingKeysIter.Next(ctx) {
+				existingKey := existingKeysIter.Pair().Value.(jwk.Key)
+
+				existingKid, ok := existingKey.Get("kid")
+				if !ok {
+					log.Warnf("Skipping registry db existing key without 'kid'")
+					continue
+				}
+
+				for clientKeysIter.Next(ctx) {
+					clientKey := clientKeysIter.Pair().Value.(jwk.Key)
+
+					clientKid, ok := clientKey.Get("kid")
+					if !ok {
+						log.Warnf("Skipping client key without 'kid'")
+						continue
+					}
+
+					// Compare the "kid" values (or other properties if needed)
+					if existingKid == clientKid {
+						matchFound = true
+						break
+					}
+				}
+
+				if matchFound {
+					break
+				}
+			}
+
+			if !matchFound {
+				return false, nil, permissionDeniedError{
+					Message: fmt.Sprintf("The provided public keys do not match the existing namespace's public key for prefix: %s", data.Prefix),
+				}
+			}
+
 			log.Debugf("New public key %s is going to replace the old one: %s", string(data.Pubkey), existingNs.Pubkey)
 
 			// Process origin's new public key

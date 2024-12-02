@@ -169,9 +169,26 @@ func NamespaceRegister(privateKey jwk.Key, namespaceRegistryEndpoint string, acc
 		return errors.Wrap(err, "failed to sign payload")
 	}
 
-	// // Create data for the second POST request
+	// Send origin's all public keys in another key set
+	privateKeys := config.GetIssuerPrivateKeys()
+	if len(privateKeys) == 0 {
+		return errors.Wrap(err, "The server doesn't have any in-memory private key")
+	}
+	allKeysSet := jwk.NewSet()
+	for _, privKey := range privateKeys {
+		pubKey, err := privKey.PublicKey()
+		if err != nil {
+			return errors.Wrapf(err, "failed to get the public key of a private key")
+		}
+		if err = allKeysSet.AddKey(pubKey); err != nil {
+			return errors.Wrap(err, "failed to add public key to all keys JWKS")
+		}
+	}
+
+	// Create data for the second POST request
 	unidentifiedPayload := map[string]interface{}{
 		"pubkey":            keySet,
+		"all_pubkeys":       allKeysSet,
 		"prefix":            prefix,
 		"site_name":         siteName,
 		"client_nonce":      clientNonce,
