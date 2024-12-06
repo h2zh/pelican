@@ -92,9 +92,10 @@ type NamespaceConfig struct {
 Various auxiliary functions used for client-server security handshakes
 */
 type registrationData struct {
-	ClientNonce     string `json:"client_nonce"`
-	ClientPayload   string `json:"client_payload"`
-	ClientSignature string `json:"client_signature"`
+	ClientNonce         string `json:"client_nonce"`
+	ClientPayload       string `json:"client_payload"`
+	ClientSignature     string `json:"client_signature"`
+	ClientPrevSignature string `json:"client_prev_signature"`
 
 	ServerNonce     string `json:"server_nonce"`
 	ServerPayload   string `json:"server_payload"`
@@ -260,9 +261,10 @@ func keySignChallengeCommit(ctx *gin.Context, data *registrationData) (bool, map
 		return false, nil, errors.Wrap(err, "failed to generate raw pubkey from jwks")
 	}
 
-	// Verify client and server private keys' Proof of Possesion
+	// Verify the Proof of Possession of the client and server's active private keys
 	clientPayload := []byte(data.ClientNonce + data.ServerNonce)
 	clientSignature, err := hex.DecodeString(data.ClientSignature)
+	log.Debugf("client's active signature: %s; active key: %s", string(clientSignature), key.KeyID())
 	if err != nil {
 		return false, nil, errors.Wrap(err, "Failed to decode the client's signature")
 	}
@@ -340,10 +342,32 @@ func keySignChallengeCommit(ctx *gin.Context, data *registrationData) (bool, map
 						continue
 					}
 
-					// Compare the "kid" values (or other properties if needed)
 					if existingKid == clientKid {
-						matchFound = true
-						break
+						// Verify the Proof of Possession of client's previous active private key
+						// Get client's previous public key recorded in db
+						var prevRawkey interface{}
+						if err := existingKey.Raw(&prevRawkey); err != nil {
+							return false, nil, errors.Wrap(err, "failed to generate raw pubkey from client's previous pubkey")
+						}
+						// Get client's previous signature from payload
+						var prevKeyVerified bool
+						if data.ClientPrevSignature == "" {
+							prevKeyVerified = true
+							log.Debugf("This is the initial namespace registration. Client's previous signature is an empty string")
+						} else {
+							clientPrevSignature, err := hex.DecodeString(data.ClientPrevSignature)
+							if err != nil {
+								return false, nil, errors.Wrap(err, "Failed to decode the client's previous signature")
+							}
+							prevKeyVerified = verifySignature(clientPayload, clientPrevSignature, (prevRawkey).(*ecdsa.PublicKey))
+						}
+
+						if prevKeyVerified {
+							matchFound = true
+							break
+						} else {
+							log.Debugf("Client cannot prove that it possesses the key it claims, key id: %s", existingKid)
+						}
 					}
 				}
 
@@ -354,7 +378,7 @@ func keySignChallengeCommit(ctx *gin.Context, data *registrationData) (bool, map
 
 			if !matchFound {
 				return false, nil, permissionDeniedError{
-					Message: fmt.Sprintf("The provided public keys do not match the existing namespace's public key for prefix: %s", data.Prefix),
+					Message: fmt.Sprintf("The client that tries to prefix '%s' cannot be authorized: either it doesn't contain any public key matching the existing namespace's public key in db, or it fails to pass the proof of possession verification", data.Prefix),
 				}
 			}
 

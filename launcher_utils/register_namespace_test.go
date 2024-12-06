@@ -109,9 +109,8 @@ func TestRegistration(t *testing.T) {
 
 	// Test registration succeeds
 	prefix := param.Origin_FederationPrefix.GetString()
-	key, registerURL, isRegistered, err := registerNamespacePrep(ctx, prefix)
+	key, registerURL, err := registerNamespacePrep(ctx, prefix)
 	require.NoError(t, err)
-	assert.False(t, isRegistered)
 	assert.Equal(t, registerURL, svr.URL+"/api/v1.0/registry")
 	err = registerNamespaceImpl(key, prefix, "mock_site_name", registerURL)
 	require.NoError(t, err)
@@ -168,10 +167,9 @@ func TestRegistration(t *testing.T) {
 
 	// Redo the namespace prep, ensure that isPresent is true
 	prefix = param.Origin_FederationPrefix.GetString()
-	_, registerURL, isRegistered, err = registerNamespacePrep(ctx, prefix)
+	_, registerURL, err = registerNamespacePrep(ctx, prefix)
 	assert.Equal(t, svr.URL+"/api/v1.0/registry", registerURL)
 	assert.NoError(t, err)
-	assert.True(t, isRegistered)
 }
 
 func TestMultiKeysRegistration(t *testing.T) {
@@ -256,9 +254,8 @@ func TestMultiKeysRegistration(t *testing.T) {
 
 	// Test registration succeeds
 	prefix := param.Origin_FederationPrefix.GetString()
-	key, registerURL, isRegistered, err := registerNamespacePrep(ctx, prefix)
+	key, registerURL, err := registerNamespacePrep(ctx, prefix)
 	require.NoError(t, err)
-	assert.False(t, isRegistered)
 	assert.Equal(t, registerURL, svr.URL+"/api/v1.0/registry")
 	err = registerNamespaceImpl(key, prefix, "mock_site_name", registerURL)
 	require.NoError(t, err)
@@ -315,8 +312,7 @@ func TestMultiKeysRegistration(t *testing.T) {
 
 	// Redo the namespace prep, ensure that isPresent is true
 	prefix = param.Origin_FederationPrefix.GetString()
-	_, registerURL, isRegistered, err = registerNamespacePrep(ctx, prefix)
+	_, registerURL, err = registerNamespacePrep(ctx, prefix)
 	assert.Equal(t, svr.URL+"/api/v1.0/registry", registerURL)
 	assert.NoError(t, err)
-	assert.True(t, isRegistered)
 }

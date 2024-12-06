@@ -200,7 +200,7 @@ func keyIsRegistered(privkey jwk.Key, registryUrlStr string, prefix string) (key
 	}
 }
 
-func registerNamespacePrep(ctx context.Context, prefix string) (key jwk.Key, registrationUrl string, isRegistered bool, err error) {
+func registerNamespacePrep(ctx context.Context, prefix string) (key jwk.Key, registrationUrl string, err error) {
 	// TODO: We eventually want to be able to export multiple prefixes; at that point, we'll
 	// refactor to loop around all the namespaces
 	if prefix == "" {
@@ -228,47 +228,7 @@ func registerNamespacePrep(ctx context.Context, prefix string) (key jwk.Key, reg
 		return
 	}
 
-	// Get in-memory private keys to check if any of them matches the registered public key
-	privateKeys := config.GetIssuerPrivateKeys()
-	if len(privateKeys) == 0 {
-		err = errors.Wrap(err, "failed to load the origin's private key(s)")
-		return
-	}
-	// Traverse each private key provided by the origin to see if it is registered
-	var misMatchCount int
-	for _, privateKey := range privateKeys {
-		if privateKey.KeyID() == "" {
-			if err = jwk.AssignKeyID(privateKey); err != nil {
-				err = errors.Wrap(err, "Error when generating a key ID for registration")
-				return
-			}
-		}
-
-		var keyStatusVar keyStatus
-		keyStatusVar, err = keyIsRegistered(privateKey, registrationUrl, prefix)
-		if err != nil {
-			err = errors.Wrap(err, "Failed to determine whether namespace is already registered")
-			return
-		}
-		switch keyStatusVar {
-		case keyMatch:
-			isRegistered = true
-		case keyMismatch:
-			misMatchCount += 1
-		case noKeyPresent:
-			log.Infof("Namespace %v not registered; new registration will proceed\n", prefix)
-		}
-	}
-	// All private keys from the origin mismatch the registered public key in registry db,
-	// meaning this origin don't have the credentials to own the namespace they claim
-	if misMatchCount == len(privateKeys) {
-		err = errors.Errorf("Namespace %v already registered under a different key", prefix)
-		return
-	}
-	// If there is at least one private key from the origin match the registered public key,
-	// we will update the public key of the namespace in registry db with the active private key
-	// held by this origin; the verified new private key also get added to in-memory map in this process
-	key, err = config.LoadIssuerPrivateKey(param.IssuerKeysDirectory.GetString())
+	key, err = config.GetIssuerPrivateJWK()
 	if err != nil {
 		err = errors.Wrap(err, "Failed to obtain origin's active private key")
 	}
@@ -294,19 +254,10 @@ func RegisterNamespaceWithRetry(ctx context.Context, egrp *errgroup.Group, prefi
 	}
 	siteName := param.Xrootd_Sitename.GetString()
 
-	key, url, isRegistered, err := registerNamespacePrep(ctx, prefix)
+	key, url, err := registerNamespacePrep(ctx, prefix)
 	if err != nil {
 		return err
 	}
-	if isRegistered {
-		metrics.SetComponentHealthStatus(metrics.OriginCache_Registry, metrics.StatusOK, "")
-		log.Debugf("Origin already has prefix %v registered\n", prefix)
-		if err := origin.FetchAndSetRegStatus(prefix); err != nil {
-			return errors.Wrapf(err, "failed to fetch registration status for the prefix %s", prefix)
-		}
-		// continue to update the public key of this prefix
-	}
-
 	if err = registerNamespaceImpl(key, prefix, siteName, url); err == nil {
 		return nil
 	}
@@ -348,11 +299,21 @@ func LaunchIssuerKeysDirRefresh(ctx context.Context, egrp *errgroup.Group) {
 				log.Debugln("Stopping periodic check for private keys directory.")
 				return nil
 			case <-ticker.C:
+				// Refresh the disk to pick up any new private key
+				config.UpdatePreviousIssuerPrivateJWK()
+				key, err := config.LoadIssuerPrivateKey(param.IssuerKeysDirectory.GetString())
+				if err != nil {
+					return errors.Wrap(err, "Failed to refresh the disk to pick up any new private key")
+				}
+				log.Debugln("Private keys directory refreshed successfully. The active (latest) private key is", key.KeyID())
+				log.Debugln("Previous private key is", config.GetPreviousIssuerPrivateJWK().KeyID())
+
+				// Update public key in registry db with the new active private key
 				extUrlStr := param.Server_ExternalWebUrl.GetString()
 				extUrl, _ := url.Parse(extUrlStr)
 				namespace := server_structs.GetOriginNs(extUrl.Host)
 				if err := RegisterNamespaceWithRetry(ctx, egrp, namespace); err != nil {
-					log.Errorf("Error refreshing private keys: %v", err)
+					log.Errorf("Error registering updated private key: %v", err)
 				}
 
 				originExports, err := server_utils.GetOriginExports()
@@ -365,9 +326,6 @@ func LaunchIssuerKeysDirRefresh(ctx context.Context, egrp *errgroup.Group) {
 					}
 				}
 
-				if key, err := config.GetIssuerPrivateJWK(); err != nil {
-					log.Debugln("Private keys directory refreshed successfully. The active (latest) private key is", key.KeyID())
-				}
 			}
 		}
 	})

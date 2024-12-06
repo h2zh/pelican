@@ -47,9 +47,11 @@ import (
 )
 
 var (
-	// This is the private JWK for the server to sign tokens. This key remains
-	// the same if the IssuerKey is unchanged
+	// This is the private JWK for the server to sign tokens
 	issuerPrivateJWK atomic.Pointer[jwk.Key]
+
+	// This is the previous private JWK for the server to sign tokens (before current one)
+	previousIssuerPrivateJWK atomic.Pointer[jwk.Key]
 
 	// Representing private keys (from all .pem files) in the directory cache
 	issuerPrivateKeys atomic.Pointer[map[string]jwk.Key]
@@ -64,6 +66,22 @@ var (
 // Reset the atomic pointer to issuer private jwk
 func ResetIssuerJWKPtr() {
 	issuerPrivateJWK.Store(nil)
+}
+
+func GetPreviousIssuerPrivateJWK() jwk.Key {
+	previousKey := previousIssuerPrivateJWK.Load()
+	if previousKey == nil {
+		return nil
+	}
+	return *previousKey
+}
+
+func UpdatePreviousIssuerPrivateJWK() {
+	// Save the current key to previousIssuerPrivateJWK
+	currentKey := issuerPrivateJWK.Load()
+	if currentKey != nil {
+		previousIssuerPrivateJWK.Store(currentKey)
+	}
 }
 
 // Set a private key as the active private key in use
@@ -796,6 +814,7 @@ func GetIssuerPrivateJWK() (jwk.Key, error) {
 		isDirChanged = true
 	}
 
+	// Re-scan the private keys dir when no active private key in memory or dir changes
 	if key == nil || isDirChanged {
 		newKey, err := LoadIssuerPrivateKey(issuerKeysDir)
 		if err != nil {
