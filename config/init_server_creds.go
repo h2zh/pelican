@@ -592,7 +592,9 @@ func migratePrivateKey(newDir string) error {
 	}
 
 	// Rename the existing private key file and set destination path
-	fileName := "migrated_key.pem"
+	fileName := fmt.Sprintf("migrated_%d_%s.pem",
+		time.Now().UnixNano(),
+		utils.CreateRandomString(4))
 	destPath := filepath.Join(newDir, fileName)
 
 	// Check if a file with the same name already exists in the destination
