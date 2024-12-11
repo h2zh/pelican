@@ -411,8 +411,8 @@ func keySignChallengeCommit(ctx *gin.Context, data *registrationData) (bool, map
 
 			log.Debugf("New public key %s is going to replace the old one: %s", string(data.Pubkey), existingNs.Pubkey)
 
-			// Process origin's new public key
-			pubkeyData, err := json.Marshal(data.Pubkey)
+			// Process origin's new public key(s)
+			pubkeyData, err := json.Marshal(data.AllPubkeys)
 			if err != nil {
 				return false, nil, errors.Wrapf(err, "Failed to convert public key from json to string format for the prefix %s", data.Prefix)
 			}

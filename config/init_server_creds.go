@@ -110,6 +110,10 @@ func getIssuerPrivateKeysCopy() map[string]jwk.Key {
 // Read the current map
 func GetIssuerPrivateKeys() map[string]jwk.Key {
 	keysPtr := issuerPrivateKeys.Load()
+	if keysPtr == nil {
+		// Return an empty map to avoid nil pointer dereference
+		return make(map[string]jwk.Key)
+	}
 	return *keysPtr
 }
 
@@ -763,36 +767,31 @@ func LoadIssuerPrivateKey(issuerKeysDir string) (jwk.Key, error) {
 	return activeKey, err
 }
 
-// Helper function to load the issuer/server's public key for other servers
+// Helper function to load the issuer/server's public key(s) for other servers
 // to verify the token signed by this server. Only intended to be called internally
-func loadIssuerPublicJWKS(existingJWKS string, issuerKeysDir string) (jwk.Set, error) {
+func loadIssuerPublicJWKS(issuerKeysDir string) (jwk.Set, error) {
 	jwks := jwk.NewSet()
-	if existingJWKS != "" {
-		var err error
-		jwks, err = jwk.ReadFile(existingJWKS)
-		if err != nil {
-			return nil, errors.Wrap(err, "Failed to read issuer JWKS file")
-		}
-	}
-	key := issuerPrivateJWK.Load()
-	if key == nil {
-		// This returns issuerPrivateJWK if it's non-nil, or find and parse private JWK
-		// located at IssuerKeysDirectory if there is one, or generate a new private key
-		loadedKey, err := LoadIssuerPrivateKey(issuerKeysDir)
+	// Get all in-memory priv keys if issuerPrivateKeys is non-empty, otherwise find and parse private key
+	// located at IssuerKeysDirectory if there is any, or generate a new private key
+	privKeys := GetIssuerPrivateKeys()
+	if len(privKeys) == 0 {
+		_, err := LoadIssuerPrivateKey(issuerKeysDir)
 		if err != nil {
 			return nil, errors.Wrap(err, "Failed to load issuer private JWK")
 		}
-		key = &loadedKey
+		privKeys = GetIssuerPrivateKeys()
+	}
+	for _, privKey := range privKeys {
+		pkey, err := jwk.PublicKeyOf(privKey)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to generate public key from file %v", issuerKeysDir)
+		}
+
+		if err = jwks.AddKey(pkey); err != nil {
+			return nil, errors.Wrap(err, "Failed to add public key to new JWKS")
+		}
 	}
 
-	pkey, err := jwk.PublicKeyOf(*key)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to generate public key from file %v", issuerKeysDir)
-	}
-
-	if err = jwks.AddKey(pkey); err != nil {
-		return nil, errors.Wrap(err, "Failed to add public key to new JWKS")
-	}
 	return jwks, nil
 }
 
@@ -827,18 +826,15 @@ func GetIssuerPrivateJWK() (jwk.Key, error) {
 	return *key, nil
 }
 
-// Check if a valid JWKS file exists at Server_IssuerJwks, return that file if so;
-// otherwise, generate and store a private key at IssuerKey and return a public key of
-// that private key, encapsulated in the JWKS format
+// Get public keys on-the-fly in JWKS format based on the in-memory private keys
 //
 // The private key generated is loaded to issuerPrivateJWK variable which is used for
 // this server to sign JWTs it issues. The public key returned will be exposed publicly
 // for other servers to verify JWTs signed by this server, typically via a well-known URL
 // i.e. "/.well-known/issuer.jwks"
 func GetIssuerPublicJWKS() (jwk.Set, error) {
-	existingJWKS := param.Server_IssuerJwks.GetString()
 	issuerKeysDir := param.IssuerKeysDirectory.GetString()
-	return loadIssuerPublicJWKS(existingJWKS, issuerKeysDir)
+	return loadIssuerPublicJWKS(issuerKeysDir)
 }
 
 // Check if there is a session secret exists at param.Server_SessionSecretFile and is not empty if there is one.
