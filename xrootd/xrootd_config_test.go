@@ -38,6 +38,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/pelicanplatform/pelican/cache"
 	"github.com/pelicanplatform/pelican/config"
 	"github.com/pelicanplatform/pelican/origin"
 	"github.com/pelicanplatform/pelican/param"
@@ -581,50 +582,31 @@ func TestXrootDCacheConfig(t *testing.T) {
 		assert.NotNil(t, configPath)
 	})
 
-	t.Run("TestCacheHTTPTLSRequiredPrefixCorrectConfig", func(t *testing.T) {
-		xrootd := xrootdTest{T: t}
-		xrootd.setup()
+	t.Run("TestNestedDataMetaNamespace", func(t *testing.T) {
+		testDir := t.TempDir()
+		viper.Set("Cache.StorageLocation", testDir)
+		namespaceLocation := filepath.Join(testDir, "namespace")
+		viper.Set("Cache.NamespaceLocation", namespaceLocation)
 
-		// Set our config
-		viper.Set("Cache.X509ClientAuthenticationPrefixes", []string{"pref1", "pref2", "pref3"})
+		cache := &cache.CacheServer{}
+		uid := os.Getuid()
+		gid := os.Getgid()
 
-		// Generate the xrootd config
-		configPath, err := ConfigXrootd(ctx, false)
-		require.NoError(t, err)
-		assert.NotNil(t, configPath)
+		// Data location test
+		nestedDataLocation := filepath.Join(namespaceLocation, "data")
+		viper.Set("Cache.DataLocations", []string{nestedDataLocation})
+		err := CheckCacheXrootdEnv(cache, uid, gid)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Please ensure these directories are not nested.")
+		// Now set to a valid location so we can hit the meta error in the next part of the test
+		viper.Set("Cache.DataLocations", []string{filepath.Join(testDir, "data")})
 
-		// Verify the output
-		file, err := os.Open(configPath)
-		assert.NoError(t, err)
-		defer file.Close()
-
-		content, err := io.ReadAll(file)
-		assert.NoError(t, err)
-		assert.Contains(t, string(content), "http.tlsrequiredprefix pref1")
-		assert.Contains(t, string(content), "http.tlsrequiredprefix pref2")
-		assert.Contains(t, string(content), "http.tlsrequiredprefix pref3")
-	})
-
-	t.Run("TestCacheAuthenticationPrefixes", func(t *testing.T) {
-		xrootd := xrootdTest{T: t}
-		xrootd.setup()
-
-		// Set our config
-		viper.Set("Cache.X509AuthenticationPrefixes", []string{})
-
-		// Generate the xrootd config
-		configPath, err := ConfigXrootd(ctx, false)
-		require.NoError(t, err)
-		assert.NotNil(t, configPath)
-
-		// Verify the output
-		file, err := os.Open(configPath)
-		assert.NoError(t, err)
-		defer file.Close()
-
-		content, err := io.ReadAll(file)
-		assert.NoError(t, err)
-		assert.NotContains(t, string(content), "http.tlsrequiredprefix")
+		// Meta location test
+		nestedMetaLocation := filepath.Join(namespaceLocation, "meta")
+		viper.Set("Cache.MetaLocations", []string{nestedMetaLocation})
+		err = CheckCacheXrootdEnv(cache, uid, gid)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "Please ensure these directories are not nested.")
 	})
 }
 

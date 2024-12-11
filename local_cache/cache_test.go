@@ -330,7 +330,7 @@ func TestClient(t *testing.T) {
 
 		_, err = client.DoGet(ctx, "pelican://"+param.Server_Hostname.GetString()+":"+strconv.Itoa(param.Server_WebPort.GetInt())+"/test/hello_world.txt.1",
 			filepath.Join(tmpDir, "hello_world.txt.1"), false, client.WithToken(token), client.WithCaches(cacheUrl), client.WithAcquireToken(false))
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Equal(t, "failed download from local-cache: server returned 404 Not Found", err.Error())
 	})
 	t.Cleanup(func() {
@@ -373,7 +373,12 @@ func TestLargeFile(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	server_utils.ResetTestState()
-	viper.Set("Client.MaximumDownloadSpeed", 40*1024*1024)
+
+	clientConfig := map[string]interface{}{
+		"Client.MaximumDownloadSpeed":     40 * 1024 * 1024,
+		"Transport.ResponseHeaderTimeout": "60s",
+	}
+	test_utils.InitClient(t, clientConfig)
 	ft := fed_test_utils.NewFedTest(t, pubOriginCfg)
 
 	ctx, cancel, egrp := test_utils.TestContext(context.Background(), t)
@@ -408,7 +413,6 @@ func TestLargeFile(t *testing.T) {
 		// Throw in a config.Reset for good measure. Keeps our env squeaky clean!
 		server_utils.ResetTestState()
 	})
-
 }
 
 // Create a federation then SIGSTOP the origin to prevent it from responding.

@@ -32,6 +32,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strconv"
@@ -50,6 +51,7 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/pelicanplatform/pelican/docs"
 	"github.com/pelicanplatform/pelican/param"
 	"github.com/pelicanplatform/pelican/pelican_url"
 	"github.com/pelicanplatform/pelican/server_structs"
@@ -171,7 +173,8 @@ var (
 		"":            true,
 	}
 
-	clientInitialized = false
+	clientInitialized     = false
+	printClientConfigOnce sync.Once
 )
 
 func init() {
@@ -922,6 +925,99 @@ func PrintConfig() error {
 	return nil
 }
 
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+// GetComponentConfig filters the full config and returns only the config parameters related to the given component.
+// The filtering is based on whether the given component is part of the components in docs.parameters.yaml.
+func GetComponentConfig(component string) (map[string]interface{}, error) {
+	rawConfig, err := param.UnmarshalConfig(viper.GetViper())
+	if err != nil {
+		return nil, err
+	}
+	value, hasValue := filterConfigRecursive(reflect.ValueOf(rawConfig), "", component)
+	if hasValue {
+		return (*value).(map[string]interface{}), nil
+	}
+	return nil, nil
+}
+
+// filterConfigRecursive is a helper function for GetComponentConfig.
+// It recursively creates a nested config map of the parameters that relate to the given component.
+func filterConfigRecursive(v reflect.Value, currentPath string, component string) (*interface{}, bool) {
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+
+	switch v.Kind() {
+	case reflect.Struct:
+		t := v.Type()
+		result := make(map[string]interface{})
+		hasField := false
+		for i := 0; i < v.NumField(); i++ {
+			field := v.Field(i)
+			fieldType := t.Field(i)
+			if !fieldType.IsExported() {
+				continue
+			}
+
+			fieldName := strings.ToLower(fieldType.Name)
+
+			var newPath string
+			if currentPath == "" {
+				newPath = fieldName
+			} else {
+				newPath = currentPath + "." + fieldName
+			}
+
+			fieldValue, fieldHasValue := filterConfigRecursive(field, newPath, component)
+			if fieldHasValue && fieldValue != nil {
+				result[fieldName] = *fieldValue
+				hasField = true
+			}
+		}
+		if hasField {
+			resultInterface := interface{}(result)
+			return &resultInterface, true
+		}
+		return nil, false
+	default:
+		lowerPath := strings.ToLower(currentPath)
+		paramDoc, exists := docs.ParsedParameters[lowerPath]
+		if exists && contains(paramDoc.Components, component) {
+			resultValue := v.Interface()
+			resultInterface := interface{}(resultValue)
+			return &resultInterface, true
+		}
+		return nil, false
+	}
+}
+
+// PrintClientConfig prints the client config in JSON format to stderr.
+func PrintClientConfig() error {
+	clientConfig, err := GetComponentConfig("client")
+	if err != nil {
+		return err
+	}
+
+	bytes, err := json.MarshalIndent(clientConfig, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stderr,
+		"================ Pelican Client Configuration ================\n",
+		string(bytes),
+		"\n",
+		"============= End of Pelican Client Configuration ============")
+	return nil
+}
+
 func SetServerDefaults(v *viper.Viper) error {
 	configDir := v.GetString("ConfigDir")
 	v.SetConfigType("yaml")
@@ -953,18 +1049,16 @@ func SetServerDefaults(v *viper.Viper) error {
 	if IsRootExecution() {
 		v.SetDefault(param.Origin_RunLocation.GetName(), filepath.Join("/run", "pelican", "xrootd", "origin"))
 		v.SetDefault(param.Cache_RunLocation.GetName(), filepath.Join("/run", "pelican", "xrootd", "cache"))
-		// To ensure Cache.DataLocation still works, we default Cache.LocalRoot to Cache.DataLocation
-		// The logic is extracted from handleDeprecatedConfig as we manually set the default value here
-		v.SetDefault(param.Cache_DataLocation.GetName(), "/run/pelican/cache")
-		v.SetDefault(param.Cache_LocalRoot.GetName(), v.GetString(param.Cache_DataLocation.GetName()))
 
-		if v.IsSet(param.Cache_DataLocation.GetName()) {
-			v.SetDefault(param.Cache_DataLocations.GetName(), []string{filepath.Join(v.GetString(param.Cache_DataLocation.GetName()), "data")})
-			v.SetDefault(param.Cache_MetaLocations.GetName(), []string{filepath.Join(v.GetString(param.Cache_DataLocation.GetName()), "meta")})
-		} else {
-			v.SetDefault(param.Cache_DataLocations.GetName(), []string{"/run/pelican/cache/data"})
-			v.SetDefault(param.Cache_MetaLocations.GetName(), []string{"/run/pelican/cache/meta"})
+		// Several deprecated keys point to Cache.StorageLocation, and by the time we reach this section of code, we should
+		// have already mapped those keys in handleDeprecatedConfig(). To prevent overriding potentially-mapped deprecated keys,
+		// we only re-set he default here if this key is not set.
+		if !v.IsSet(param.Cache_StorageLocation.GetName()) {
+			v.SetDefault(param.Cache_StorageLocation.GetName(), filepath.Join("/run", "pelican", "cache"))
 		}
+		v.SetDefault(param.Cache_NamespaceLocation.GetName(), filepath.Join(param.Cache_StorageLocation.GetString(), "namespace"))
+		v.SetDefault(param.Cache_DataLocations.GetName(), []string{filepath.Join(param.Cache_StorageLocation.GetString(), "data")})
+		v.SetDefault(param.Cache_MetaLocations.GetName(), []string{filepath.Join(param.Cache_StorageLocation.GetString(), "meta")})
 
 		v.SetDefault(param.LocalCache_RunLocation.GetName(), filepath.Join("/run", "pelican", "localcache"))
 		v.SetDefault(param.Origin_Multiuser.GetName(), true)
@@ -1012,18 +1106,17 @@ func SetServerDefaults(v *viper.Viper) error {
 		}
 
 		v.SetDefault(param.Origin_GlobusConfigLocation.GetName(), filepath.Join(runtimeDir, "xrootd", "origin", "globus"))
-		// To ensure Cache.DataLocation still works, we default Cache.LocalRoot to Cache.DataLocation
-		// The logic is extracted from handleDeprecatedConfig as we manually set the default value here
-		v.SetDefault(param.Cache_DataLocation.GetName(), filepath.Join(runtimeDir, "cache"))
-		v.SetDefault(param.Cache_LocalRoot.GetName(), v.GetString(param.Cache_DataLocation.GetName()))
 
-		if v.IsSet(param.Cache_DataLocation.GetName()) {
-			v.SetDefault(param.Cache_DataLocations.GetName(), []string{filepath.Join(v.GetString(param.Cache_DataLocation.GetName()), "data")})
-			v.SetDefault(param.Cache_MetaLocations.GetName(), []string{filepath.Join(v.GetString(param.Cache_DataLocation.GetName()), "meta")})
-		} else {
-			v.SetDefault(param.Cache_DataLocations.GetName(), []string{filepath.Join(runtimeDir, "pelican/cache/data")})
-			v.SetDefault(param.Cache_MetaLocations.GetName(), []string{filepath.Join(runtimeDir, "pelican/cache/meta")})
+		// Several deprecated keys point to Cache.StorageLocation, and by the time we reach this section of code, we should
+		// have already mapped those keys in handleDeprecatedConfig(). To prevent overriding potentially-mapped deprecated keys,
+		// we only re-set he default here if this key is not set.
+		if !viper.IsSet(param.Cache_StorageLocation.GetName()) {
+			viper.SetDefault(param.Cache_StorageLocation.GetName(), filepath.Join(runtimeDir, "cache"))
 		}
+		viper.SetDefault(param.Cache_NamespaceLocation.GetName(), filepath.Join(param.Cache_StorageLocation.GetString(), "namespace"))
+		viper.SetDefault(param.Cache_DataLocations.GetName(), []string{filepath.Join(param.Cache_StorageLocation.GetString(), "data")})
+		viper.SetDefault(param.Cache_MetaLocations.GetName(), []string{filepath.Join(param.Cache_StorageLocation.GetString(), "meta")})
+
 		v.SetDefault(param.LocalCache_RunLocation.GetName(), filepath.Join(runtimeDir, "cache"))
 		v.SetDefault(param.Origin_Multiuser.GetName(), false)
 	}
@@ -1153,11 +1246,6 @@ func InitServer(ctx context.Context, currentServers server_structs.ServerType) e
 			log.Warning("Origin.DirectorTest may not be enabled when the origin is configured with non-posix backends. Turning off...")
 			viper.Set(param.Origin_DirectorTest.GetName(), false)
 		}
-	}
-
-	if param.Cache_DataLocation.IsSet() {
-		log.Warningf("Deprecated configuration key %s is set. Please migrate to use %s instead", param.Cache_DataLocation.GetName(), param.Cache_LocalRoot.GetName())
-		log.Warningf("Will attempt to use the value of %s as default for %s", param.Cache_DataLocation.GetName(), param.Cache_LocalRoot.GetName())
 	}
 
 	if err := SetServerDefaults(viper.GetViper()); err != nil {
@@ -1525,6 +1613,18 @@ func InitClient() error {
 	fedDiscoveryOnce = &sync.Once{}
 
 	clientInitialized = true
+
+	var printClientConfigErr error
+	printClientConfigOnce.Do(func() {
+		if log.GetLevel() == log.DebugLevel {
+			printClientConfigErr = PrintClientConfig()
+		}
+	})
+
+	// Return any error encountered during PrintClientConfig
+	if printClientConfigErr != nil {
+		return printClientConfigErr
+	}
 
 	return nil
 }

@@ -44,7 +44,7 @@ description: |+
 
   Subdirectories of the provided directories are not read. Only the root config file's `ConfigLocations` key is used, and any redefinitions are ignored.
 type: stringSlice
-default: none
+default: []
 components: ["*"]
 ---
 name: Debug
@@ -224,9 +224,9 @@ components: ["origin"]
 ---
 name: Logging.Origin.Http
 description: |+
-  Logging level for the HTTP component of the origin. Increasing to debug will cause the Xrootd daemon to log.
+  Logging level for the HTTP component of the origin. Increasing to debug
+  will cause the Xrootd daemon to log all headers and requests.
   Accepted values: `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `panic`
-  all headers and requests.
 type: string
 default: error
 components: ["origin"]
@@ -579,7 +579,7 @@ description: |+
   This configuration is meant mostly to be used by passing the -v flag from the command line. Paths exported with this
   configuration will inherit the origin's abilities, so individual export configurations are not possible.
 type: stringSlice
-default: none
+default: []
 components: ["origin"]
 ---
 name: Origin.EnablePublicReads
@@ -776,35 +776,65 @@ components: ["origin"]
 ---
 name: Origin.ScitokensRestrictedPaths
 description: |+
-  Enable the built-in issuer daemon for the origin.
+  This parameter is used to configure
+  [XRootD's SciTokens authorization plugin](https://github.com/xrootd/xrootd/tree/master/src/XrdSciTokens).
+
+  Any restrictions on the paths that the issuer can authorize inside their
+  namespace. This is meant to be a mechanism to help with transitions, where
+  the underlying storage is setup such that an issuer's namespace contains
+  directories that should not be managed by the issuer.
 type: stringSlice
-default: none
+default: []
 components: ["origin"]
 ---
 name: Origin.ScitokensMapSubject
 description: |+
-  Enable the built-in issuer daemon for the origin.
+  This parameter is used to configure
+  [XRootD's SciTokens authorization plugin](https://github.com/xrootd/xrootd/tree/master/src/XrdSciTokens).
+
+  If set to `true`, the contents of the token's `sub` claim will be copied
+  into the XRootD username. When `Origin.Multiuser` is also set to `true`,
+  this will allow XRootD to read and write files using the Unix username
+  specified in the token.
 type: bool
 default: false
 components: ["origin"]
 ---
 name: Origin.ScitokensDefaultUser
 description: |+
-  Enable the built-in issuer daemon for the origin.
+  This parameter is used to configure
+  [XRootD's SciTokens authorization plugin](https://github.com/xrootd/xrootd/tree/master/src/XrdSciTokens).
+
+  If set, then all authorized operations will be performed under the
+  provided username when interacting with the file system. This is useful
+  when all files owned by an issuer should be mapped to a particular Unix
+  user account.
 type: string
 default: none
 components: ["origin"]
 ---
 name: Origin.ScitokensUsernameClaim
 description: |+
-  Enable the built-in issuer daemon for the origin.
+  This parameter is used to configure
+  [XRootD's SciTokens authorization plugin](https://github.com/xrootd/xrootd/tree/master/src/XrdSciTokens).
+
+  If set, then the provided claim will be used to determine the XRootD
+  username, and it will override the
+  `Origin.ScitokensMapSubject` and `Origin.ScitokensDefaultUser` parameters.
 type: string
 default: none
 components: ["origin"]
 ---
 name: Origin.ScitokensNameMapFile
 description: |+
-  Enable the built-in issuer daemon for the origin.
+  This parameter is used to configure
+  [XRootD's SciTokens authorization plugin](https://github.com/xrootd/xrootd/tree/master/src/XrdSciTokens).
+
+  If set, then the referenced file is parsed as a JSON object and the
+  specified mappings are applied to the username inside the XRootD
+  framework. See the
+  [XrdSciTokens documentation](https://github.com/xrootd/xrootd/tree/master/src/XrdSciTokens#mapfile-format)
+  for more information on the mapfile's format.
 type: string
 default: none
 components: ["origin"]
@@ -1079,48 +1109,125 @@ components: ["localcache"]
 ############################
 #   Cache-level configs    #
 ############################
-name: Cache.DataLocation
+name: Cache.StorageLocation
 description: |+
-  [Deprecated] Cache.DataLocation is being deprecated and will be removed in a future release. It is replaced by a combination of Cache.DataLocations and Cache.MetaLocations
-type: string
-root_default: /run/pelican/xcache
-default: $XDG_RUNTIME_DIR/pelican/xcache
-deprecated: true
-replacedby: Cache.LocalRoot
-components: ["cache"]
----
-name: Cache.LocalRoot
-description: |+
-  The location where the filesystem namespace is actually rooted
+  An absolute path to the directory where xrootd will create its default `namespace`, `meta`, and `data` directories. For example,
+  setting `Cache.StorageLocation=/run/pelican/cache` without specifying further `Cache.DataLocations` or `Cache.MetaLocations`
+  values will result in the cache creating a directory structure like:
+  ```
+  .
+  └── /run/pelican/cache/
+      ├── data/
+      │   ├── 00 # hexadecimal name values
+      │   ├── 01
+      │   ├── ...
+      │   └── FF
+      ├── meta/
+      │   ├── 00 # hexadecimal name values
+      │   ├── 01
+      │   ├── ...
+      │   └── FF
+      └── namespace/
+          ├── namespace1/
+          │   ├── foo1.txt --> /run/pelican/cache/data/00
+          │   └── foo2.txt --> /run/pelican/cache/data/01
+          └── namespace2/
+              └── bar.txt --> /run/pelican/cache/data/FF
+  ```
+  In this setup, actual data files live at `/run/pelican/cache/data` and are given hexadecimal names, while
+  references (symbolic links) to those files are stored in `/run/pelican/cache/namespace`. The `meta` directory
+  is used for object metadata. Object requests to XRootD will be served from the namespace directories, and
+  resolve the underlying object through these symbolic links.
+
+  We recommend tying the `Cache.StorageLocation` to a fast storage device, such as an SSD, to ensure optimal cache performance.
+  If this directory does not already exist, it will be created by Pelican.
+
+  WARNING: The default value of /var/run/pelican should _never_ be used for production caches, as this directory is typically
+  cleared on system restarts, and may interfere with system services if it becomes full. Running a cache with the default value
+  set will generate a warning at cache startup.
 type: string
 root_default: /run/pelican/cache
 default: $XDG_RUNTIME_DIR/pelican/cache
 components: ["cache"]
 ---
-name: Cache.ExportLocation
+name: Cache.NamespaceLocation
 description: |+
-  The location of the export directory. Everything under this directory will be exposed as part of the cache. This is
-  relative to the mount location.
+  A cache's namespace directory is used to duplicate/recreate the federation's namespace structure, and stores symbolic links from
+  object names to the actual data files (see `Cache.StorageLocation` for extra information). For example, requesting `/foo/bar.txt` from a
+  cache will check for the existence of a symbolic link at `${Cache.NamespaceLocation}/foo/bar.txt`, and if it exists, the cache will serve
+  the data file at the location the symbolic link points to.
+
+  If this directory does not already exist, it will be created by Pelican.
+
+  WARNING: It's important that any values for `Cache.DataLocations` and `Cache.MetaLocations` are NOT subdirectories of `Cache.NamespaceLocation`,
+  as this will make the raw data/meta files accessible through the cache's namespace structure, which is undefined behavior.
 type: string
-default: /
+default:  ${Cache.StorageLocation}/namespace
+
 components: ["cache"]
 ---
 name: Cache.DataLocations
 description: |+
-  A list of directories for the locations of the cache data files - this is where the actual data in the cache is stored.
-  These paths should *not* be in same path as XrootD.Mount or else it will expose the data files as part of the files within the cache.
+  A list of absolute filesystem paths/directories where the cache's object data will be stored. This list of directories can be used to string together
+  multiple storage devices to increase the cache's storage capacity, as long as each of the directories is accessible by the cache service.
+  For example, setting `Cache.DataLocations=["/mnt/cache1", "/mnt/cache2"]` will result in splitting cache data between two mounted drives,
+  `/mnt/cache1` and `/mnt/cache2`. As such, these drives should be fast storage devices, such as SSDs.
+
+  For more information, see the [xrootd oss documentation](https://xrootd.slac.stanford.edu/doc/dev56/ofs_config.pdf) for the `oss.space` directive
+  as well as the [xrootd pfc documentation](https://xrootd.slac.stanford.edu/doc/dev56/pss_config.pdf) for the `pfc.spaces` directive.
+
+  If this directory does not already exist, it will be created by Pelican.
+
+  WARNING: It's important that any values for `Cache.DataLocations` are NOT subdirectories of `Cache.NamespaceLocation`,
+  as this will make the raw data files accessible through the cache's namespace structure, which is undefined behavior.
 type: stringSlice
-root_default: ["/run/pelican/cache/data"]
-default: ["$XDG_RUNTIME_DIR/pelican/cache/data"]
+default: ["${Cache.StorageLocation}/data"]
 components: ["cache"]
 ---
 name: Cache.MetaLocations
 description: |+
-  A list of directories for the locations of the cache metadata. These paths should *not* be in the same path as XrootD.Mount or else it
-  will expose the metadata files as part of the files within the cache
+  A list of absolute filesystem paths/directories where the cache's object metadata will be stored. Values in this list may point to separate drives as long
+  as they're accessible by the cache service. For example, setting `Cache.MetaLocations=["/mnt/meta1", "/mnt/meta2"]` will result in
+  splitting cache metadata between two the mounted drives. As such, these drives should be fast storage devices, such as SSDs.
+
+  For more information, see the [xrootd oss documentation](https://xrootd.slac.stanford.edu/doc/dev56/ofs_config.pdf) for the `oss.space` directive
+  as well as the [xrootd pfc documentation](https://xrootd.slac.stanford.edu/doc/dev56/pss_config.pdf) for the `pfc.spaces` directive.
+
+  If this directory does not already exist, it will be created by Pelican.
+
+  WARNING: It's important that any values for `Cache.MetaLocations` are NOT subdirectories of `Cache.NamespaceLocation`,
+  as this will make the raw metadata files accessible through the cache's namespace structure, which is undefined behavior.
 type: stringSlice
-root_default: ["/run/pelican/cache/meta"]
-default: ["$XDG_RUNTIME_DIR/pelican/cache/meta"]
+default: ["${Cache.StorageLocation}/meta"]
+components: ["cache"]
+---
+name: Cache.LocalRoot
+description: |+
+  [Deprecated] Cache.LocalRoot is deprecated and replaced by Cache.StorageLocation.
+type: string
+root_default: /run/pelican/cache
+default: $XDG_RUNTIME_DIR/pelican/cache
+deprecated: true
+replacedby: "Cache.StorageLocation"
+components: ["cache"]
+---
+name: Cache.DataLocation
+description: |+
+  [Deprecated] Cache.DataLocation is being deprecated and will be removed in a future release. It is replaced by Cache.StorageLocation
+type: string
+root_default: /run/pelican/cache
+default: $XDG_RUNTIME_DIR/pelican/cache
+deprecated: true
+replacedby: Cache.StorageLocation
+components: ["cache"]
+---
+name: Cache.ExportLocation
+description: |+
+  A path that's relative to the `Cache.NamespaceLocation` where the cache will expose its contents. This path can be used to
+  control which namespaces are available through the cache. For example, setting `Cache.ExportLocation: /foo` will only expose
+  the `/foo` namespace to clients.
+type: string
+default: /
 components: ["cache"]
 ---
 name: Cache.RunLocation
@@ -1223,7 +1330,7 @@ description: |+
   the cache is allowed to access any namespace that's advertised to the director. Otherwise, it will
   only be allowed to access the listed namespaces.
 type: stringSlice
-default: none
+default: []
 components: ["cache"]
 ---
 name: Cache.SelfTest
@@ -1262,6 +1369,16 @@ type: int
 default: 0
 components: ["cache"]
 ---
+name: Cache.DefaultCacheTimeout
+description: |+
+  The default value of the cache operation timeout if one is not specified by the client.
+
+  Newer clients should always specify a timeout; changing this default is rarely necessary.
+type: duration
+default: 9.5s
+hidden: true
+components: ["cache"]
+---
 ############################
 #  Director-level configs  #
 ############################
@@ -1298,7 +1415,7 @@ description: |+
 
   If present, the hostname is taken from the X-Forwarded-Host header in the request. Otherwise, Host is used.
 type: stringSlice
-default: none
+default: []
 components: ["director"]
 ---
 name: Director.CacheSortMethod
@@ -1327,7 +1444,7 @@ description: |+
 
   If present, the hostname is taken from the X-Forwarded-Host header in the request. Otherwise, Host is used.
 type: stringSlice
-default: none
+default: []
 components: ["director"]
 ---
 name: Director.MaxMindKeyFile
@@ -1460,7 +1577,7 @@ description: |+
   A list of server resource names that the Director should consider in downtime, preventing the Director from issuing redirects to them.
   Additional downtimes are aggregated from Topology (when the Director is served in OSDF mode), and the Web UI.
 type: stringSlice
-default: none
+default: []
 components: ["director"]
 ---
 name: Director.SupportContactEmail
@@ -1502,7 +1619,7 @@ description: |+
 
   This setting allows for compatibility with specific legacy OSDF origins and is not needed for new origins.
 type: stringSlice
-default: none
+default: []
 components: ["director"]
 hidden: true
 ---
@@ -1865,7 +1982,7 @@ description: |+
 
   The "subject" claim should be the "CILogon User Identifier" from CILogon user page: https://cilogon.org/
 type: stringSlice
-default: none
+default: []
 components: ["registry","origin","cache"]
 ---
 name: Server.StartupTimeout
@@ -2291,6 +2408,15 @@ type: string
 default: none
 components: ["origin"]
 ---
+name: Xrootd.MaxStartupWait
+description: |+
+  The maximum amount of time pelican will wait for the xrootd daemons to
+  successfully start
+type: duration
+default: 10s
+hidden: true
+components: ["origin", "cache"]
+---
 ############################
 # Monitoring-level configs #
 ############################
@@ -2490,7 +2616,7 @@ name: Shoveler.OutputDestinations
 description: |+
   A list of <IP:Port> destinations to forward XRootD monitoring packet to.
 type: stringSlice
-default: none
+default: []
 components: ["origin", "cache"]
 ---
 name: Shoveler.VerifyHeader

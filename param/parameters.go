@@ -51,7 +51,8 @@ type ObjectParam struct {
 
 func GetDeprecated() map[string][]string {
     return map[string][]string{
-        "Cache.DataLocation": {"Cache.LocalRoot"},
+        "Cache.DataLocation": {"Cache.StorageLocation"},
+        "Cache.LocalRoot": {"Cache.StorageLocation"},
         "Director.EnableStat": {"Director.CheckOriginPresence"},
         "DisableHttpProxy": {"Client.DisableHttpProxy"},
         "DisableProxyFallback": {"Client.DisableProxyFallback"},
@@ -148,8 +149,10 @@ var (
 	Cache_HighWaterMark = StringParam{"Cache.HighWaterMark"}
 	Cache_LocalRoot = StringParam{"Cache.LocalRoot"}
 	Cache_LowWatermark = StringParam{"Cache.LowWatermark"}
+	Cache_NamespaceLocation = StringParam{"Cache.NamespaceLocation"}
 	Cache_RunLocation = StringParam{"Cache.RunLocation"}
 	Cache_SentinelLocation = StringParam{"Cache.SentinelLocation"}
+	Cache_StorageLocation = StringParam{"Cache.StorageLocation"}
 	Cache_Url = StringParam{"Cache.Url"}
 	Cache_XRootDPrefix = StringParam{"Cache.XRootDPrefix"}
 	Director_CacheSortMethod = StringParam{"Director.CacheSortMethod"}
@@ -380,6 +383,7 @@ var (
 )
 
 var (
+	Cache_DefaultCacheTimeout = DurationParam{"Cache.DefaultCacheTimeout"}
 	Cache_SelfTestInterval = DurationParam{"Cache.SelfTestInterval"}
 	Client_SlowTransferRampupTime = DurationParam{"Client.SlowTransferRampupTime"}
 	Client_SlowTransferWindow = DurationParam{"Client.SlowTransferWindow"}
@@ -403,6 +407,7 @@ var (
 	Transport_ResponseHeaderTimeout = DurationParam{"Transport.ResponseHeaderTimeout"}
 	Transport_TLSHandshakeTimeout = DurationParam{"Transport.TLSHandshakeTimeout"}
 	Xrootd_AuthRefreshInterval = DurationParam{"Xrootd.AuthRefreshInterval"}
+	Xrootd_MaxStartupWait = DurationParam{"Xrootd.MaxStartupWait"}
 )
 
 var (
