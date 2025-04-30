@@ -230,10 +230,10 @@ func generateTestFileViaPlugin() (string, error) {
 	}
 
 	// Transplant the test file and cinfo from birthplace to the selfTestDir via xrdhttp-pelican plugin
-	if err = xrootd.SelfTestFileCopy(4, file); err != nil {
+	if err = xrootd.FileCopyToXrootdDir(false, 4, file); err != nil {
 		return "", errors.Wrap(err, "failed to copy the test file to the self-test directory")
 	}
-	if err = xrootd.SelfTestFileCopy(5, cinfoFile); err != nil {
+	if err = xrootd.FileCopyToXrootdDir(false, 5, cinfoFile); err != nil {
 		return "", errors.Wrap(err, "failed to copy the test cinfo file to the self-test directory")
 	}
 
