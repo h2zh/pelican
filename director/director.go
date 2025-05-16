@@ -1217,9 +1217,9 @@ func registerServerAd(engineCtx context.Context, ctx *gin.Context, sType server_
 		if !isServerFiltered || existingFilterType == tempAllowed {
 			filteredServers[sn] = shutdownFiltered
 
-			// The downtime window is set to the TTL of the advertisement
-			window := param.Director_AdvertisementTTL.GetDuration()
-			log.Debugf("Server %s is shutting down, applying a %d-min downtime so it will not receive new transfer requests", sn, window.Minutes())
+			// The downtime window is set to the TTL of the advertisement + shutting down grace period
+			window := param.Director_AdvertisementTTL.GetDuration() + time.Minute
+			log.Debugf("Server %s is shutting down, applying a %d-min downtime so it will not receive new transfer requests", sn, window.Round(time.Minute))
 
 			// Remove the downtime (shutdown filter) after the downtime window
 			time.AfterFunc(window, func() {
