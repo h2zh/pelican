@@ -1206,9 +1206,9 @@ func registerServerAd(engineCtx context.Context, ctx *gin.Context, sType server_
 		filteredServersMutex.Unlock()
 	}
 
-	// If the server is about to shutdown, we silently apply a 1-min downtime to it.
+	// If the server is about to shutdown, we silently apply a short period of downtime to it.
 	// Then it will not receive new requests from the Director, but it will still be able to serve the existing ones.
-	if true { // TODO: change this placeholder condition after rebase the server ad's status PR: adV2.Status == "shutdown"
+	if adV2.Availability == server_structs.AvailShuttingDown {
 		filteredServersMutex.Lock()
 		// Inspect the existing downtime status for this server
 		existingFilterType, isServerFiltered := filteredServers[sn]
@@ -1216,10 +1216,13 @@ func registerServerAd(engineCtx context.Context, ctx *gin.Context, sType server_
 		// Put the server in downtime only if no filter (downtime) exists or it was tempAllowed
 		if !isServerFiltered || existingFilterType == tempAllowed {
 			filteredServers[sn] = shutdownFiltered
-			log.Debugf("Server %s is shutting down, applying a 1-min downtime so it will not receive new transfer requests", sn)
 
-			// Remove the downtime (shutdown filter) after a short period
-			time.AfterFunc(1*time.Minute, func() {
+			// The downtime window is set to the TTL of the advertisement
+			window := param.Director_AdvertisementTTL.GetDuration()
+			log.Debugf("Server %s is shutting down, applying a %d-min downtime so it will not receive new transfer requests", sn, window.Minutes())
+
+			// Remove the downtime (shutdown filter) after the downtime window
+			time.AfterFunc(window, func() {
 				filteredServersMutex.Lock()
 				defer filteredServersMutex.Unlock()
 				if existing, ok := filteredServers[sn]; ok && existing == shutdownFiltered {
