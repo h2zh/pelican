@@ -21,7 +21,7 @@ package config
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/ed25519"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -36,7 +36,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	"github.com/youmark/pkcs8"
 	"golang.org/x/crypto/curve25519"
 	"golang.org/x/crypto/nacl/box"
 	"golang.org/x/term"
@@ -214,6 +213,8 @@ func GetCredentialConfigContents() (OSDFConfig, error) {
 	rest := []byte(encContents)
 	var data []byte
 	var key interface{}
+	var keyID string
+
 	for {
 		var block *pem.Block
 		block, rest = pem.Decode(rest)
@@ -229,27 +230,15 @@ func GetCredentialConfigContents() (OSDFConfig, error) {
 			// the same as the user explicitly setting an empty password.
 			setEmptyPassword = true
 		} else if block.Type == "ENCRYPTED PRIVATE KEY" {
-			password, _ := TryGetPassword()
-			typedPassword := false
-			if len(password) == 0 {
-				password, err = GetPassword(false)
-				typedPassword = true
-			}
-			if err != nil {
+			if key, err = x509.ParsePKCS8PrivateKey(block.Bytes); err != nil {
 				return config, err
-			}
-			if len(password) == 0 {
-				return config, errors.New("Encrypted key present; must have non-empty password")
-			}
-			if key, err = pkcs8.ParsePKCS8PrivateKey(block.Bytes, password); err != nil {
-				return config, err
-			}
-			if typedPassword {
-				if err := SavePassword(password); err != nil {
-					fmt.Fprintln(os.Stderr, "Failed to save password:", err)
-				}
 			}
 			foundKey = true
+			// Extract the KeyId from the PEM headers of the encrypted private key block.
+			// This ID identifies which issuer key was used to encrypt this configuration.
+			if kid, ok := block.Headers["KeyId"]; ok {
+				keyID = kid
+			}
 		} else if block.Type == "ENCRYPTED CONFIG" {
 			data = block.Bytes
 			foundData = true
@@ -261,17 +250,44 @@ func GetCredentialConfigContents() (OSDFConfig, error) {
 		return config, errors.New("Encrypted config did not include data block")
 	}
 
-	ed25519_sk, ok := key.(ed25519.PrivateKey)
+	// Convert to ECDSA key
+	ecdsaKey, ok := key.(*ecdsa.PrivateKey)
 	if !ok {
-		return config, errors.New("Config contents do not include an ED25519 private key")
+		return config, errors.New("Config contents do not include an ECDSA private key")
 	}
-	x25519_sk := ConvertX25519Key(ed25519_sk)
+
+	// Convert to X25519 for decryption
+	x25519_sk := ConvertX25519Key(ecdsaKey.D.Bytes())
 	x25519_pk_slice, err := curve25519.X25519(x25519_sk[:], curve25519.Basepoint)
+	if err != nil {
+		return config, err
+	}
 	var x25519_pk [32]byte
 	copy(x25519_pk[:], x25519_pk_slice)
 
+	// Get the current key ID
+	currentKey, err := GetIssuerPrivateJWK()
 	if err != nil {
 		return config, err
+	}
+	currentKeyID := currentKey.KeyID()
+
+	// Re-encrypt to update the keyID header in the config when either:
+	//   - the keyID header is missing (keyID == ""), or
+	//   - the keyID header exists but doesn't match the current issuer key.
+	needsUpdate := keyID == "" || keyID != currentKeyID
+	if needsUpdate {
+		if keyID == "" {
+			log.Debugf("Updating encrypted client configuration that had no KeyId header to current key %s",
+				currentKeyID)
+		} else {
+			log.Debugf("Updating encrypted client configuration from key %s to current key %s",
+				keyID, currentKeyID)
+		}
+		// Re-encrypt the config with the current key
+		if err := SaveConfigContents(&config); err != nil {
+			return config, err
+		}
 	}
 
 	messages, ok := box.OpenAnonymous(nil, data, &x25519_pk, &x25519_sk)
@@ -310,27 +326,41 @@ func SaveConfigContents_internal(config *OSDFConfig, forcePassword bool) error {
 		return err
 	}
 
-	password, err := TryGetPassword()
-	if setEmptyPassword {
-		fmt.Fprintln(os.Stderr, "WARNING: empty password provided; the credentials will be saved unencrypted on disk")
-	} else if forcePassword || len(password) == 0 || err != nil {
-		var exists bool
-		if exists, err = EncryptedConfigExists(); err == nil && !exists {
-			password, err = GetPassword(true)
-		} else {
-			password, err = GetPassword(false)
-		}
-		if err != nil {
-			return err
-		}
-	}
-
-	_, ed25519_sk, err := ed25519.GenerateKey(nil)
+	// Get the current issuer key to encrypt the config
+	currentKey, err := GetIssuerPrivateJWK()
 	if err != nil {
 		return err
 	}
 
-	x25519_sk := ConvertX25519Key(ed25519_sk)
+	// Extract the underlying private key
+	var rawKey interface{}
+	if err := currentKey.Raw(&rawKey); err != nil {
+		return err
+	}
+
+	// Convert to ECDSA key
+	ecdsaKey, ok := rawKey.(*ecdsa.PrivateKey)
+	if !ok {
+		return errors.New("Issuer key is not an ECDSA key")
+	}
+
+	// Convert private key to PKCS8 format
+	key_bytes, err := x509.MarshalPKCS8PrivateKey(ecdsaKey)
+	if err != nil {
+		return err
+	}
+
+	// Save as PEM with the key ID in headers
+	keyPEM := pem.Block{
+		Type:  "ENCRYPTED PRIVATE KEY",
+		Bytes: key_bytes,
+		Headers: map[string]string{
+			"KeyId": currentKey.KeyID(),
+		},
+	}
+
+	// Convert to X25519 for encryption
+	x25519_sk := ConvertX25519Key(ecdsaKey.D.Bytes())
 	x25519_pk_slice, err := curve25519.X25519(x25519_sk[:], curve25519.Basepoint)
 	if err != nil {
 		return err
@@ -338,44 +368,25 @@ func SaveConfigContents_internal(config *OSDFConfig, forcePassword bool) error {
 	var x25519_pk [32]byte
 	copy(x25519_pk[:], x25519_pk_slice)
 
+	// Encrypt the config
 	boxed_bytes, err := box.SealAnonymous(nil, []byte(contents), &x25519_pk, rand.Reader)
 	if err != nil {
 		return errors.New("Failed to seal config")
 	}
 
-	var key_bytes []byte
-	if len(password) == 0 {
-		key_bytes, err = x509.MarshalPKCS8PrivateKey(ed25519.PrivateKey(ed25519_sk[:]))
-	} else {
-		opts := *pkcs8.DefaultOpts
-		if kdfopts, ok := (opts.KDFOpts).(*pkcs8.PBKDF2Opts); ok {
-			kdfopts.IterationCount = 100000
-		}
-		key_bytes, err = pkcs8.MarshalPrivateKey(ed25519.PrivateKey(ed25519_sk[:]), password, &opts)
-	}
-	if err != nil {
-		return err
+	configPEM := pem.Block{
+		Type:  "ENCRYPTED CONFIG",
+		Bytes: boxed_bytes,
+		Headers: map[string]string{
+			"KeyId": currentKey.KeyID(),
+		},
 	}
 
-	pem_block := pem.Block{Type: "ENCRYPTED PRIVATE KEY", Bytes: key_bytes}
-	if len(password) == 0 {
-		pem_block.Type = "PRIVATE KEY"
-	}
-	pem_bytes_memory := append(pem.EncodeToMemory(&pem_block), '\n')
+	// Combine both PEM blocks
+	pemBytesMemory := append(pem.EncodeToMemory(&keyPEM), '\n')
+	pemBytesMemory = append(pemBytesMemory, pem.EncodeToMemory(&configPEM)...)
 
-	pem_block.Type = "ENCRYPTED CONFIG"
-	pem_block.Bytes = boxed_bytes
-
-	pem_bytes_memory = append(pem_bytes_memory, pem.EncodeToMemory(&pem_block)...)
-
-	if len(password) > 0 {
-		err = SavePassword(password)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Failed to save password to session keychain:", err)
-		}
-	}
-
-	return SaveEncryptedContents(pem_bytes_memory)
+	return SaveEncryptedContents(pemBytesMemory)
 }
 
 // Get a 32B secret from server IssuerKey
