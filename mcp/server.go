@@ -104,9 +104,10 @@ type ContentItem struct {
 
 // Server implements the MCP server
 type Server struct {
-	reader *bufio.Reader
-	writer io.Writer
-	ctx    context.Context
+	reader      *bufio.Reader
+	writer      io.Writer
+	ctx         context.Context
+	initialized bool
 }
 
 // NewServer creates a new MCP server
@@ -118,13 +119,21 @@ func NewServer(ctx context.Context, reader io.Reader, writer io.Writer) *Server 
 	}
 }
 
+// ensureInitialized initializes the Pelican client if not already done
+func (s *Server) ensureInitialized() error {
+	if !s.initialized {
+		if err := config.InitClient(); err != nil {
+			log.Errorf("Failed to initialize Pelican client: %v", err)
+			return fmt.Errorf("failed to initialize Pelican client: %w", err)
+		}
+		s.initialized = true
+		log.Info("Pelican client initialized")
+	}
+	return nil
+}
+
 // Run starts the MCP server and handles requests
 func (s *Server) Run() error {
-	// Initialize the Pelican client
-	if err := config.InitClient(); err != nil {
-		return fmt.Errorf("failed to initialize Pelican client: %w", err)
-	}
-
 	log.Info("Pelican MCP server started")
 
 	for {
@@ -288,6 +297,14 @@ func (s *Server) handleCallTool(req *JSONRPCRequest) error {
 
 // handleDownload implements the pelican_download tool
 func (s *Server) handleDownload(args map[string]interface{}) CallToolResult {
+	// Ensure Pelican client is initialized
+	if err := s.ensureInitialized(); err != nil {
+		return CallToolResult{
+			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("Error: Failed to initialize Pelican client: %v", err)}},
+			IsError: true,
+		}
+	}
+
 	source, ok := args["source"].(string)
 	if !ok {
 		return CallToolResult{
@@ -351,6 +368,14 @@ func (s *Server) handleDownload(args map[string]interface{}) CallToolResult {
 
 // handleStat implements the pelican_stat tool
 func (s *Server) handleStat(args map[string]interface{}) CallToolResult {
+	// Ensure Pelican client is initialized
+	if err := s.ensureInitialized(); err != nil {
+		return CallToolResult{
+			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("Error: Failed to initialize Pelican client: %v", err)}},
+			IsError: true,
+		}
+	}
+
 	url, ok := args["url"].(string)
 	if !ok {
 		return CallToolResult{
@@ -396,6 +421,14 @@ func (s *Server) handleStat(args map[string]interface{}) CallToolResult {
 
 // handleList implements the pelican_list tool
 func (s *Server) handleList(args map[string]interface{}) CallToolResult {
+	// Ensure Pelican client is initialized
+	if err := s.ensureInitialized(); err != nil {
+		return CallToolResult{
+			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("Error: Failed to initialize Pelican client: %v", err)}},
+			IsError: true,
+		}
+	}
+
 	url, ok := args["url"].(string)
 	if !ok {
 		return CallToolResult{
