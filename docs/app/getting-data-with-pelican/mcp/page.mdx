@@ -1,0 +1,442 @@
+import ExportedImage from "next-image-export-optimizer";
+
+# Using Pelican with AI Assistants via MCP
+
+The Pelican Model Context Protocol (MCP) server enables AI assistants like Claude Desktop, VS Code Copilot, and other MCP-compatible tools to download files, inspect metadata, and list directories from Pelican federations. This allows you to use natural language to interact with Pelican data directly from your AI-powered development environment.
+
+## What is MCP?
+
+The [Model Context Protocol](https://modelcontextprotocol.io/) is an open standard that allows AI assistants to connect to external tools and data sources. By running a Pelican MCP server, your AI assistant can:
+
+- Download objects from Pelican federations using natural language requests
+- Get metadata about objects (size, modification time, checksums)
+- List directory contents
+- Work with both public and protected namespaces
+
+## Before Starting
+
+### Assumptions
+
+This guide assumes:
+
+- You have Pelican installed on your system with the `pelican` command accessible in your PATH
+- You're familiar with [Pelican's command line client](../client/page.mdx) and basic concepts
+- You have an MCP-compatible AI assistant installed (Claude Desktop or VS Code with GitHub Copilot)
+- You're comfortable editing JSON configuration files
+
+### Verify Pelican Installation
+
+Ensure the Pelican MCP server is available:
+
+```bash copy
+pelican mcp --help
+```
+
+You should see output describing the `pelican mcp serve` command. If not, refer to the [Pelican installation docs](../../install.mdx) to install or update Pelican.
+
+## Setting Up with Claude Desktop
+
+Claude Desktop natively supports MCP servers, making it easy to integrate Pelican.
+
+### 1. Locate Your Configuration File
+
+The Claude Desktop configuration file location depends on your operating system:
+
+**macOS**:
+```bash
+~/Library/Application Support/Claude/claude_desktop_config.json
+```
+
+**Windows**:
+```bash
+%APPDATA%\Claude\claude_desktop_config.json
+```
+
+**Linux**:
+```bash
+~/.config/Claude/claude_desktop_config.json
+```
+
+### 2. Add Pelican MCP Server
+
+Edit the configuration file and add the Pelican MCP server to the `mcpServers` section:
+
+```json copy
+{
+  "mcpServers": {
+    "pelican": {
+      "command": "pelican",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+If you already have other MCP servers configured, simply add the `"pelican"` entry alongside them:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/username/Desktop"]
+    },
+    "pelican": {
+      "command": "pelican",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+### 3. Restart Claude Desktop
+
+After saving the configuration file, completely quit Claude Desktop (not just close the window) and reopen it.
+
+**macOS**: Press `Cmd+Q` then relaunch
+**Windows**: Right-click the system tray icon and select "Quit", then relaunch
+**Linux**: Use your window manager's quit command, then relaunch
+
+### 4. Verify Connection
+
+In Claude Desktop, look for an MCP indicator (often a hammer/tool icon) that shows connected servers. You should see "pelican" listed as a connected MCP server.
+
+### 5. Use Natural Language to Download Data
+
+You can now ask Claude to download Pelican objects using natural language:
+
+```
+Download the file pelican://osg-htc.org/ospool/uc-shared/public/OSG-Staff/validation/test.txt to my Downloads folder
+```
+
+Claude will use the `pelican_download` tool to fetch the file and confirm when it's complete.
+
+## Setting Up with VS Code
+
+VS Code with GitHub Copilot can also use MCP servers to enhance its capabilities.
+
+### 1. Install Required Extensions
+
+Ensure you have:
+- [GitHub Copilot extension](https://marketplace.visualstudio.com/items?itemName=GitHub.copilot)
+- MCP support (available in recent Copilot versions)
+
+### 2. Configure MCP Settings
+
+Open VS Code settings (`Cmd/Ctrl + ,`) and search for "MCP". Add the Pelican server to your MCP configuration:
+
+**Option A: Via Settings UI**
+
+1. Search for "github.copilot.mcp.servers"
+2. Click "Edit in settings.json"
+3. Add the Pelican configuration
+
+**Option B: Direct settings.json Edit**
+
+Open your VS Code settings.json (`Cmd/Ctrl + Shift + P` → "Preferences: Open User Settings (JSON)") and add:
+
+```json copy
+{
+  "github.copilot.mcp.servers": {
+    "pelican": {
+      "command": "pelican",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+### 3. Reload VS Code
+
+After saving the configuration, reload VS Code:
+- Press `Cmd/Ctrl + Shift + P`
+- Type "Developer: Reload Window"
+- Press Enter
+
+### 4. Use Copilot Chat with Pelican
+
+In the Copilot Chat panel, you can now request Pelican operations:
+
+```
+@workspace Download pelican://osg-htc.org/pelicanplatform/test/hello-world.txt to the current workspace
+```
+
+Copilot will use the Pelican MCP server to download the file.
+
+## Available Tools
+
+Once configured, your AI assistant has access to three Pelican tools:
+
+### pelican_download
+
+Downloads objects from Pelican URLs to your local filesystem.
+
+**Example prompts**:
+- "Download pelican://osg-htc.org/ospool/uc-shared/public/OSG-Staff/validation/test.txt to /tmp/test.txt"
+- "Get the hello-world.txt file from pelican://osg-htc.org/pelicanplatform/test/ and save it locally"
+- "Download the entire validation directory recursively from pelican://osg-htc.org/ospool/uc-shared/public/OSG-Staff/validation/"
+
+**Parameters**:
+- `source`: The Pelican URL to download from
+- `destination`: Local path where the object should be saved
+- `recursive`: (optional) Set to true to download directories recursively
+- `token`: (optional) Authentication token for protected namespaces
+
+### pelican_stat
+
+Gets metadata about a Pelican object including size, modification time, and checksums.
+
+**Example prompts**:
+- "What's the size of pelican://osg-htc.org/pelicanplatform/test/hello-world.txt?"
+- "Get information about the validation test file"
+- "Show me the metadata for pelican://osg-htc.org/ospool/uc-shared/public/OSG-Staff/validation/test.txt"
+
+**Parameters**:
+- `url`: The Pelican URL to inspect
+- `token`: (optional) Authentication token for protected namespaces
+
+### pelican_list
+
+Lists the contents of a Pelican directory.
+
+**Example prompts**:
+- "List the contents of pelican://osg-htc.org/ospool/uc-shared/public/OSG-Staff/validation/"
+- "What files are in the pelicanplatform test directory?"
+- "Show me all objects under pelican://osg-htc.org/pelicanplatform/test/"
+
+**Parameters**:
+- `url`: The Pelican URL of the directory to list
+- `token`: (optional) Authentication token for protected namespaces
+
+## Working with Protected Namespaces
+
+Some namespaces require authentication. To download from protected namespaces using MCP:
+
+### Generate a Token
+
+First, generate an authentication token using the Pelican CLI:
+
+```bash copy
+pelican object get pelican://<federation-url>/<protected-namespace>/<path> <destination>
+```
+
+This will guide you through authentication and store the token in your token wallet. See [Getting Protected Objects](../client/page.mdx#get-a-protected-object-from-your-federation) for details.
+
+### Provide Token to AI Assistant
+
+When requesting protected data from your AI assistant, you can either:
+
+**Option 1: Let the assistant find the token automatically**
+
+The MCP server will use tokens from your Pelican token wallet if available:
+
+```
+Download the protected file pelican://my-federation.org/protected/data.txt to ~/Downloads/
+```
+
+**Option 2: Provide a token explicitly**
+
+If you have a token file, you can specify it in your prompt:
+
+```
+Download pelican://my-federation.org/protected/data.txt using the token from ~/my-token.jwt
+```
+
+The AI assistant will pass this to the `pelican_download` tool's `token` parameter.
+
+## Example Workflows
+
+### Downloading Research Data
+
+```
+User: I need to download the LIGO gravitational wave data from
+pelican://osg-htc.org/ospool/PROTECTED/ligo/data/H1/strain.hdf5
+to my research directory
+
+AI: I'll download that file for you. [Uses pelican_download tool]
+Successfully downloaded to ~/research/strain.hdf5 (2.3 GB)
+```
+
+### Exploring Available Data
+
+```
+User: What data is available in the pelican://osg-htc.org/pelicanplatform/test/ directory?
+
+AI: Let me check that for you. [Uses pelican_list tool]
+
+The directory contains:
+- hello-world.txt (27 bytes)
+- sample-data.csv (1.2 MB)
+- README.md (543 bytes)
+```
+
+### Checking File Metadata Before Download
+
+```
+User: Before I download pelican://osg-htc.org/ospool/uc-shared/public/OSG-Staff/validation/test.txt,
+can you tell me how large it is?
+
+AI: [Uses pelican_stat tool]
+
+The file is 27 bytes, last modified on 2024-03-15. It has MD5 checksum: a1b2c3d4...
+Since it's very small, would you like me to download it?
+
+User: Yes please, to /tmp/
+
+AI: [Uses pelican_download tool]
+Downloaded to /tmp/test.txt
+```
+
+## Troubleshooting
+
+### MCP Server Not Connecting
+
+If your AI assistant shows the Pelican MCP server as disconnected:
+
+1. **Verify Pelican is in PATH**:
+   ```bash
+   which pelican
+   ```
+   If this returns nothing, add Pelican to your PATH or use the full path in your MCP configuration.
+
+2. **Test MCP server manually**:
+   ```bash
+   pelican mcp serve
+   ```
+   You should see "Pelican MCP server started" in the output. Press Ctrl+C to exit.
+
+3. **Check configuration syntax**:
+   Ensure your JSON configuration is valid. Use a JSON validator if needed.
+
+4. **Restart your AI assistant completely**:
+   Make sure you fully quit (not just close) and relaunch.
+
+### Permission Errors
+
+If you get permission errors:
+
+```bash
+chmod +x $(which pelican)
+```
+
+### Downloads Fail
+
+If downloads fail with authentication errors:
+
+1. Ensure you've authenticated for protected namespaces using the CLI first
+2. Check that tokens are stored in your Pelican token wallet
+3. For public namespaces, verify the URL is correct using the CLI:
+   ```bash
+   pelican object get pelican://... /tmp/test
+   ```
+
+### AI Assistant Doesn't Use Pelican Tools
+
+If your AI assistant isn't using the Pelican tools:
+
+1. **Be explicit**: Say "Use the pelican_download tool to..."
+2. **Check MCP connection**: Verify the server shows as connected
+3. **Provide complete Pelican URLs**: Include the full `pelican://` URL
+
+## Advanced Configuration
+
+### Custom Pelican Installation Path
+
+If Pelican is not in your system PATH, specify the full path:
+
+```json
+{
+  "mcpServers": {
+    "pelican": {
+      "command": "/opt/pelican/bin/pelican",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+### Debug Mode
+
+To enable debug logging for troubleshooting:
+
+```json
+{
+  "mcpServers": {
+    "pelican": {
+      "command": "pelican",
+      "args": ["mcp", "serve", "--debug"]
+    }
+  }
+}
+```
+
+Logs will appear in your AI assistant's MCP server logs.
+
+### Environment Variables
+
+You can pass environment variables to configure the MCP server:
+
+```json
+{
+  "mcpServers": {
+    "pelican": {
+      "command": "pelican",
+      "args": ["mcp", "serve"],
+      "env": {
+        "PELICAN_FEDERATION_URL": "https://my-federation.org"
+      }
+    }
+  }
+}
+```
+
+## Best Practices
+
+### Use Descriptive Prompts
+
+Instead of:
+```
+Download the file
+```
+
+Use:
+```
+Download pelican://osg-htc.org/pelicanplatform/test/hello-world.txt to ~/Downloads/hello.txt
+```
+
+### Verify Before Large Downloads
+
+For large files or directories, ask for metadata first:
+
+```
+How large is pelican://osg-htc.org/ospool/data/large-dataset/ recursively?
+```
+
+Then download if appropriate.
+
+### Organize Downloaded Files
+
+Specify organized destination paths:
+
+```
+Download pelican://osg-htc.org/ospool/uc-shared/public/OSG-Staff/validation/test.txt
+to ~/pelican-data/validation/test.txt
+```
+
+The MCP server will create directories as needed.
+
+## Learn More
+
+- [Pelican Command Line Client](../client/page.mdx) - Learn the CLI commands that power the MCP server
+- [Model Context Protocol Specification](https://modelcontextprotocol.io/) - Learn about the MCP standard
+- [Claude Desktop Documentation](https://claude.ai/desktop) - More on using MCP with Claude
+- [VS Code MCP Documentation](https://code.visualstudio.com/docs/copilot/customization/mcp-servers) - Integrating MCP with VS Code
+
+## Support
+
+If you encounter issues with the Pelican MCP server:
+
+1. Check the [Pelican documentation](../../) for general Pelican help
+2. Verify your configuration follows the examples above
+3. Test with the Pelican CLI first to ensure basic functionality works
+4. Report issues on the [Pelican GitHub repository](https://github.com/PelicanPlatform/pelican/issues)
