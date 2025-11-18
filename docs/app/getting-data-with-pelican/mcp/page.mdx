@@ -2,7 +2,7 @@ import ExportedImage from "next-image-export-optimizer";
 
 # Using Pelican with AI Assistants via MCP
 
-The Pelican Model Context Protocol (MCP) server enables AI assistants like Claude Code, VS Code Copilot, and other MCP-compatible tools to download files, inspect metadata, and list directories from Pelican federations. This allows you to use natural language to interact with Pelican data directly from your AI-powered development environment.
+The Pelican Model Context Protocol (MCP) server enables AI assistants like Claude Code (CLI tool), VS Code Copilot, and other MCP-compatible tools to download files, inspect metadata, and list directories from Pelican federations. This allows you to use natural language to interact with Pelican data directly from your terminal or AI-powered development environment.
 
 ## What is MCP?
 
@@ -52,7 +52,7 @@ You should see output describing the `pelican mcp serve` command. If not, refer 
 
 ## Setting Up with Claude Code
 
-Claude Code (the web-based version of Claude) natively supports MCP servers, making it easy to integrate Pelican.
+Claude Code is Anthropic's official AI-powered CLI tool that natively supports MCP servers, making it easy to integrate Pelican into your terminal workflow.
 
 ### 1. Locate Your Configuration File
 
@@ -105,20 +105,20 @@ If you already have other MCP servers configured, simply add the `"pelican"` ent
 }
 ```
 
-### 3. Restart Claude Code
+### 3. Configuration is Automatic
 
-After saving the configuration file, refresh your browser tab or restart Claude Code to load the new MCP server configuration.
+After saving the configuration file, Claude Code will automatically load the Pelican MCP server when you start a new session. No restart is required - the MCP server is loaded on-demand.
 
 ### 4. Verify Connection
 
-In Claude Code, look for an MCP indicator (often a tools or server icon) that shows connected servers. You should see "pelican" listed as a connected MCP server.
+Start a Claude Code session in your terminal. When you mention Pelican operations, Claude Code will automatically connect to the MCP server. You can verify the connection by asking Claude to list available tools - "pelican" should appear in the connected MCP servers.
 
 ### 5. Use Natural Language to Download Data
 
 You can now ask Claude to download Pelican objects using natural language:
 
 ```
-Download the file pelican://osg-htc.org/ospool/uc-shared/public/OSG-Staff/validation/test.txt to my Downloads folder
+Download the file pelican://osg-htc.org/ospool/uc-shared/public/OSG-Staff/validation/test.txt to ~/Downloads/test.txt
 ```
 
 Claude will use the `pelican_download` tool to fetch the file and confirm when it's complete.

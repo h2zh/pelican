@@ -22,7 +22,28 @@ The Pelican MCP server provides three main tools:
 pelican mcp serve
 ```
 
-The server will read JSON-RPC requests from stdin and write responses to stdout. It's designed to be launched by an MCP client (such as Claude Desktop, Cline, or other AI assistants with MCP support).
+The server will read JSON-RPC requests from stdin and write responses to stdout. It's designed to be launched by an MCP client (such as Claude Code, Claude Desktop, Cline, or other AI assistants with MCP support).
+
+### Configuring with Claude Code (CLI Tool)
+
+To use the Pelican MCP server with Claude Code, add it to your MCP configuration file:
+
+**macOS**: `~/Library/Application Support/Claude/claude_mcp_config.json`
+**Windows**: `%APPDATA%\Claude\claude_mcp_config.json`
+**Linux**: `~/.config/claude/claude_mcp_config.json`
+
+```json
+{
+  "mcpServers": {
+    "pelican": {
+      "command": "pelican",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+After saving the configuration, start a new Claude Code session. The Pelican tools will be available automatically.
 
 ### Configuring with Claude Desktop
 
