@@ -11,7 +11,23 @@ The [Model Context Protocol](https://modelcontextprotocol.io/) is an open standa
 - Download objects from Pelican federations using natural language requests
 - Get metadata about objects (size, modification time, checksums)
 - List directory contents
-- Work with both public and protected namespaces
+- Work with **public namespaces** and **protected namespaces** (with limitations - see below)
+
+## Important Limitations
+
+The Pelican MCP server has important authentication limitations you should be aware of:
+
+### ✅ What Works
+- **Public namespaces**: Full support for downloading, listing, and inspecting public data
+- **Protected namespaces** (after CLI authentication): May work if you authenticate via the Pelican CLI first
+- **Explicit token files**: Can provide token files in your prompts
+
+### ❌ What Doesn't Work
+- **First-time authentication to protected namespaces**: The MCP server cannot perform interactive OAuth/OIDC flows
+- **Browser-based login**: Cannot open browsers or redirect to SSO providers (CILogon, university logins, etc.)
+- **Interactive token acquisition**: Cannot prompt for passwords or handle multi-step authentication
+
+**Bottom line**: For protected namespaces, you must authenticate using the Pelican CLI first, then the MCP server may be able to reuse cached tokens. See [Working with Protected Namespaces](#working-with-protected-namespaces) for details.
 
 ## Before Starting
 
@@ -210,33 +226,46 @@ Lists the contents of a Pelican directory.
 
 ## Working with Protected Namespaces
 
-Some namespaces require authentication. To download from protected namespaces using MCP:
+> **⚠️ Important Authentication Limitations**
+>
+> The Pelican MCP server runs as a non-interactive background process and **cannot**:
+> - Open a browser for OAuth/OIDC authentication flows
+> - Prompt for user input or passwords
+> - Complete interactive CILogon or university SSO login flows
+>
+> This means you **cannot authenticate to a protected namespace for the first time** via MCP.
+>
+> **For protected namespaces, you must authenticate using the Pelican CLI first**, which will cache tokens that the MCP server may be able to reuse. Alternatively, you can provide token files explicitly.
 
-### Generate a Token
+### Authentication Workflow for Protected Namespaces
 
-First, generate an authentication token using the Pelican CLI:
+#### Step 1: Authenticate via Pelican CLI
+
+Before using the MCP server with protected namespaces, authenticate using the command line:
 
 ```bash copy
 pelican object get pelican://<federation-url>/<protected-namespace>/<path> <destination>
 ```
 
-This will guide you through authentication and store the token in your token wallet. See [Getting Protected Objects](../client/page.mdx#get-a-protected-object-from-your-federation) for details.
+This will:
+1. Guide you through the OAuth/OIDC login flow in your browser
+2. Store the authentication token in your Pelican token wallet (`~/.config/pelican/credentials/`)
 
-### Provide Token to AI Assistant
+See [Getting Protected Objects](../client/page.mdx#get-a-protected-object-from-your-federation) for detailed CLI authentication instructions.
 
-When requesting protected data from your AI assistant, you can either:
+#### Step 2: Use MCP Server (Token Reuse)
 
-**Option 1: Let the assistant find the token automatically**
-
-The MCP server will use tokens from your Pelican token wallet if available:
+After CLI authentication, the MCP server **may** be able to reuse cached tokens automatically:
 
 ```
-Download the protected file pelican://my-federation.org/protected/data.txt to ~/Downloads/
+Download pelican://my-federation.org/protected/data.txt to ~/Downloads/
 ```
 
-**Option 2: Provide a token explicitly**
+> **Note**: Automatic token reuse from the wallet is not yet fully verified. If this doesn't work, use the explicit token method below.
 
-If you have a token file, you can specify it in your prompt:
+#### Alternative: Provide Tokens Explicitly
+
+If automatic token reuse doesn't work, or if you have a standalone token file, provide it explicitly:
 
 ```
 Download pelican://my-federation.org/protected/data.txt using the token from ~/my-token.jwt
@@ -244,17 +273,27 @@ Download pelican://my-federation.org/protected/data.txt using the token from ~/m
 
 The AI assistant will pass this to the `pelican_download` tool's `token` parameter.
 
+### Obtaining Standalone Token Files
+
+To get a standalone token file for use with MCP:
+
+```bash copy
+# Authenticate and export token
+pelican object get pelican://<federation-url>/<protected-namespace>/<path> /tmp/test \
+  --token-location ~/my-pelican-token.jwt
+```
+
+Then use this token file with your AI assistant as shown above.
+
 ## Example Workflows
 
-### Downloading Research Data
+### Downloading from Public Namespaces
 
 ```
-User: I need to download the LIGO gravitational wave data from
-pelican://osg-htc.org/ospool/PROTECTED/ligo/data/H1/strain.hdf5
-to my research directory
+User: Download pelican://osg-htc.org/pelicanplatform/test/hello-world.txt to ~/Downloads/
 
 AI: I'll download that file for you. [Uses pelican_download tool]
-Successfully downloaded to ~/research/strain.hdf5 (2.3 GB)
+Successfully downloaded to ~/Downloads/hello-world.txt (27 bytes)
 ```
 
 ### Exploring Available Data
