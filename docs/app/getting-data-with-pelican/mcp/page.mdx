@@ -2,7 +2,7 @@ import ExportedImage from "next-image-export-optimizer";
 
 # Using Pelican with AI Assistants via MCP
 
-The Pelican Model Context Protocol (MCP) server enables AI assistants like Claude Desktop, VS Code Copilot, and other MCP-compatible tools to download files, inspect metadata, and list directories from Pelican federations. This allows you to use natural language to interact with Pelican data directly from your AI-powered development environment.
+The Pelican Model Context Protocol (MCP) server enables AI assistants like Claude Code, VS Code Copilot, and other MCP-compatible tools to download files, inspect metadata, and list directories from Pelican federations. This allows you to use natural language to interact with Pelican data directly from your AI-powered development environment.
 
 ## What is MCP?
 
@@ -37,7 +37,7 @@ This guide assumes:
 
 - You have Pelican installed on your system with the `pelican` command accessible in your PATH
 - You're familiar with [Pelican's command line client](../client/page.mdx) and basic concepts
-- You have an MCP-compatible AI assistant installed (Claude Desktop or VS Code with GitHub Copilot)
+- You have an MCP-compatible AI assistant installed (Claude Code or VS Code with GitHub Copilot)
 - You're comfortable editing JSON configuration files
 
 ### Verify Pelican Installation
@@ -50,27 +50,27 @@ pelican mcp --help
 
 You should see output describing the `pelican mcp serve` command. If not, refer to the [Pelican installation docs](../../install.mdx) to install or update Pelican.
 
-## Setting Up with Claude Desktop
+## Setting Up with Claude Code
 
-Claude Desktop natively supports MCP servers, making it easy to integrate Pelican.
+Claude Code (the web-based version of Claude) natively supports MCP servers, making it easy to integrate Pelican.
 
 ### 1. Locate Your Configuration File
 
-The Claude Desktop configuration file location depends on your operating system:
+The Claude Code MCP configuration file location depends on your operating system:
 
 **macOS**:
 ```bash
-~/Library/Application Support/Claude/claude_desktop_config.json
+~/Library/Application Support/Claude/claude_mcp_config.json
 ```
 
 **Windows**:
 ```bash
-%APPDATA%\Claude\claude_desktop_config.json
+%APPDATA%\Claude\claude_mcp_config.json
 ```
 
 **Linux**:
 ```bash
-~/.config/Claude/claude_desktop_config.json
+~/.config/claude/claude_mcp_config.json
 ```
 
 ### 2. Add Pelican MCP Server
@@ -105,17 +105,13 @@ If you already have other MCP servers configured, simply add the `"pelican"` ent
 }
 ```
 
-### 3. Restart Claude Desktop
+### 3. Restart Claude Code
 
-After saving the configuration file, completely quit Claude Desktop (not just close the window) and reopen it.
-
-**macOS**: Press `Cmd+Q` then relaunch
-**Windows**: Right-click the system tray icon and select "Quit", then relaunch
-**Linux**: Use your window manager's quit command, then relaunch
+After saving the configuration file, refresh your browser tab or restart Claude Code to load the new MCP server configuration.
 
 ### 4. Verify Connection
 
-In Claude Desktop, look for an MCP indicator (often a hammer/tool icon) that shows connected servers. You should see "pelican" listed as a connected MCP server.
+In Claude Code, look for an MCP indicator (often a tools or server icon) that shows connected servers. You should see "pelican" listed as a connected MCP server.
 
 ### 5. Use Natural Language to Download Data
 
@@ -468,7 +464,7 @@ The MCP server will create directories as needed.
 
 - [Pelican Command Line Client](../client/page.mdx) - Learn the CLI commands that power the MCP server
 - [Model Context Protocol Specification](https://modelcontextprotocol.io/) - Learn about the MCP standard
-- [Claude Desktop Documentation](https://claude.ai/desktop) - More on using MCP with Claude
+- [Claude Code MCP Documentation](https://docs.claude.com/en/docs/claude-code/mcp) - More on using MCP with Claude Code
 - [VS Code MCP Documentation](https://code.visualstudio.com/docs/copilot/customization/mcp-servers) - Integrating MCP with VS Code
 
 ## Support
