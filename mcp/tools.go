@@ -19,12 +19,17 @@
 package mcp
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/pelicanplatform/pelican/client"
 )
+
+// Default timeout for OAuth device flow authentication (3 minutes)
+const deviceAuthTimeout = 3 * time.Minute
 
 // getToolsList returns the list of available MCP tools
 func getToolsList() []Tool {
@@ -314,24 +319,36 @@ func (s *Server) handleAuth(args map[string]interface{}) CallToolResult {
 		}
 	}
 
+	// Calculate the effective timeout - use the shorter of our default timeout or the server's expiry time
+	timeout := deviceAuthTimeout
+	if authInfo.ExpiresIn > 0 && time.Duration(authInfo.ExpiresIn)*time.Second < timeout {
+		timeout = time.Duration(authInfo.ExpiresIn) * time.Second
+	}
+
 	// Build response message with the verification URL
 	var message string
 	if authInfo.VerificationURLComplete != "" {
-		message = fmt.Sprintf("To authenticate for accessing %s, please visit the following URL and approve the request:\n\n%s\n\n", url, authInfo.VerificationURLComplete)
+		message = fmt.Sprintf("🔐 **Authentication Required**\n\nTo access the protected namespace at `%s`, please:\n\n1. **Click or visit this URL** to authenticate:\n\n   %s\n\n2. Complete the authorization in your browser\n\n", url, authInfo.VerificationURLComplete)
 	} else {
-		message = fmt.Sprintf("To authenticate for accessing %s, please visit the following URL:\n\n%s\n\nand enter this code: %s\n\n", url, authInfo.VerificationURL, authInfo.UserCode)
+		message = fmt.Sprintf("🔐 **Authentication Required**\n\nTo access the protected namespace at `%s`, please:\n\n1. **Visit this URL:**\n\n   %s\n\n2. **Enter this code:** `%s`\n\n3. Complete the authorization in your browser\n\n", url, authInfo.VerificationURL, authInfo.UserCode)
 	}
-	message += fmt.Sprintf("This authorization will expire in %d seconds.\n\n", authInfo.ExpiresIn)
-	message += "Waiting for authorization..."
+	message += fmt.Sprintf("⏱️ You have **%.0f minutes** to complete authentication.\n\nWaiting for you to authorize...", float64(timeout.Seconds())/60)
 
-	// Poll for completion - this blocks until the user authorizes or the request expires.
-	// The blocking behavior is intentional: the MCP protocol expects a response with the
-	// final result, and the AI assistant will display the verification URL message while
-	// waiting. The expiry time (typically 5-15 minutes) serves as a natural timeout.
-	token, err := client.CompleteDeviceAuth(s.ctx, url, authInfo)
+	// Create a timeout context for the device auth polling
+	authCtx, cancel := context.WithTimeout(s.ctx, timeout)
+	defer cancel()
+
+	// Poll for completion - this blocks until the user authorizes, times out, or context is cancelled
+	token, err := client.CompleteDeviceAuth(authCtx, url, authInfo)
 	if err != nil {
+		if authCtx.Err() == context.DeadlineExceeded {
+			return CallToolResult{
+				Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("%s\n\n❌ **Authentication timed out.** Please try again with `pelican_auth` if you need more time.", message)}},
+				IsError: true,
+			}
+		}
 		return CallToolResult{
-			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("%s\n\nAuthorization failed: %v", message, err)}},
+			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("%s\n\n❌ **Authorization failed:** %v", message, err)}},
 			IsError: true,
 		}
 	}
@@ -339,8 +356,7 @@ func (s *Server) handleAuth(args map[string]interface{}) CallToolResult {
 	// Don't display the token itself for security reasons
 	_ = token // Token is cached by CompleteDeviceAuth, we just need to confirm success
 
-	successMessage := message + "\n\nAuthorization successful! Token has been cached.\n"
-	successMessage += fmt.Sprintf("You can now access protected resources at %s\n", url)
+	successMessage := fmt.Sprintf("%s\n\n✅ **Authorization successful!** Token has been cached.\n\nYou can now access protected resources at `%s`", message, url)
 
 	return CallToolResult{
 		Content: []ContentItem{{Type: "text", Text: successMessage}},

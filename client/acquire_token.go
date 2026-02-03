@@ -976,10 +976,16 @@ func InitiateDeviceAuth(ctx context.Context, sourceUrl string) (*DeviceAuthInfo,
 		return nil, fmt.Errorf("issuer URL for prefix %s is unknown", nsPrefix)
 	}
 
-	// Get or create client credentials
-	osdfConfig, err := config.GetCredentialConfigContents()
-	if err != nil {
-		return nil, err
+	// Try to get existing client credentials from the config file.
+	// If we can't read the config (e.g., it's encrypted and we're not in a terminal),
+	// we'll register a new client without caching.
+	osdfConfig, configErr := config.GetCredentialConfigContents()
+	canSaveConfig := configErr == nil
+
+	if configErr != nil {
+		log.Debugf("Could not read credential config (will register new client without caching): %v", configErr)
+		// Initialize empty config to proceed
+		osdfConfig = config.OSDFConfig{}
 	}
 
 	prefixIdx := -1
@@ -1013,7 +1019,7 @@ func InitiateDeviceAuth(ctx context.Context, sourceUrl string) (*DeviceAuthInfo,
 			newEntry = true
 		}
 	}
-	if newEntry {
+	if newEntry && canSaveConfig {
 		if err = config.SaveConfigContents(&osdfConfig); err != nil {
 			log.Warningln("Failed to save new client to configuration file:", err)
 		}
