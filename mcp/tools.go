@@ -31,6 +31,9 @@ import (
 // Default timeout for OAuth device flow authentication (3 minutes)
 const deviceAuthTimeout = 3 * time.Minute
 
+// Timeout for polling in pelican_auth_complete (should be less than MCP client timeout, typically 60s)
+const authCompletionPollTimeout = 45 * time.Second
+
 // getToolsList returns the list of available MCP tools
 func getToolsList() []Tool {
 	return []Tool{
@@ -99,13 +102,27 @@ func getToolsList() []Tool {
 		},
 		{
 			Name:        "pelican_auth",
-			Description: "Authenticate to a protected Pelican namespace using OAuth device flow. This returns a verification URL that the user must visit to authorize access. After authorization, the token is automatically cached for future operations.",
+			Description: "Start authentication to a protected Pelican namespace using OAuth device flow. This returns a verification URL that the user must visit to authorize access. IMPORTANT: After the user completes authorization in their browser, call pelican_auth_complete to finish authentication and cache the token.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"url": map[string]interface{}{
 						"type":        "string",
 						"description": "The Pelican URL of the protected resource to authenticate for (e.g., pelican://osg-htc.org/protected/path)",
+					},
+				},
+				"required": []string{"url"},
+			},
+		},
+		{
+			Name:        "pelican_auth_complete",
+			Description: "Complete the OAuth device flow authentication after the user has visited the verification URL. Call this AFTER the user confirms they have completed authorization in their browser. This will poll for the token and cache it for future operations.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"url": map[string]interface{}{
+						"type":        "string",
+						"description": "The same Pelican URL that was used to start authentication with pelican_auth",
 					},
 				},
 				"required": []string{"url"},
@@ -292,7 +309,8 @@ func (s *Server) handleList(args map[string]interface{}) CallToolResult {
 	}
 }
 
-// handleAuth implements the pelican_auth tool for authenticating to protected namespaces
+// handleAuth implements the pelican_auth tool for starting authentication to protected namespaces.
+// This returns the verification URL immediately without blocking for user authorization.
 func (s *Server) handleAuth(args map[string]interface{}) CallToolResult {
 	// Ensure Pelican client is initialized
 	if err := s.ensureInitialized(); err != nil {
@@ -319,10 +337,30 @@ func (s *Server) handleAuth(args map[string]interface{}) CallToolResult {
 		}
 	}
 
-	// Calculate the effective timeout - use the shorter of our default timeout or the server's expiry time
-	timeout := deviceAuthTimeout
-	if authInfo.ExpiresIn > 0 && time.Duration(authInfo.ExpiresIn)*time.Second < timeout {
-		timeout = time.Duration(authInfo.ExpiresIn) * time.Second
+	// Store the pending auth for later completion and clean up expired entries
+	s.authMutex.Lock()
+	// Clean up expired pending auths to prevent memory leaks
+	for u, pa := range s.pendingAuths {
+		maxAge := deviceAuthTimeout
+		if pa.authInfo.ExpiresIn > 0 && time.Duration(pa.authInfo.ExpiresIn)*time.Second < maxAge {
+			maxAge = time.Duration(pa.authInfo.ExpiresIn) * time.Second
+		}
+		if time.Since(pa.createdAt) > maxAge {
+			delete(s.pendingAuths, u)
+		}
+	}
+	// Store the new pending auth
+	s.pendingAuths[url] = &pendingAuth{
+		authInfo:  authInfo,
+		url:       url,
+		createdAt: time.Now(),
+	}
+	s.authMutex.Unlock()
+
+	// Calculate expiry time
+	expiryMinutes := float64(authInfo.ExpiresIn) / 60
+	if expiryMinutes > float64(deviceAuthTimeout.Minutes()) {
+		expiryMinutes = float64(deviceAuthTimeout.Minutes())
 	}
 
 	// Build response message with the verification URL
@@ -332,34 +370,93 @@ func (s *Server) handleAuth(args map[string]interface{}) CallToolResult {
 	} else {
 		message = fmt.Sprintf("🔐 **Authentication Required**\n\nTo access the protected namespace at `%s`, please:\n\n1. **Visit this URL:**\n\n   %s\n\n2. **Enter this code:** `%s`\n\n3. Complete the authorization in your browser\n\n", url, authInfo.VerificationURL, authInfo.UserCode)
 	}
-	message += fmt.Sprintf("⏱️ You have **%.0f minutes** to complete authentication.\n\nWaiting for you to authorize...", float64(timeout.Seconds())/60)
+	message += fmt.Sprintf("⏱️ You have **%.0f minutes** to complete authentication.\n\n", expiryMinutes)
+	message += "**IMPORTANT:** After you complete authorization in your browser, tell me and I'll call `pelican_auth_complete` to finish the process."
 
-	// Create a timeout context for the device auth polling
+	return CallToolResult{
+		Content: []ContentItem{{Type: "text", Text: message}},
+		IsError: false,
+	}
+}
+
+// handleAuthComplete implements the pelican_auth_complete tool for completing authentication.
+// This polls for the token after the user has authorized in their browser.
+func (s *Server) handleAuthComplete(args map[string]interface{}) CallToolResult {
+	// Ensure Pelican client is initialized
+	if err := s.ensureInitialized(); err != nil {
+		return CallToolResult{
+			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("Error: Failed to initialize Pelican client: %v", err)}},
+			IsError: true,
+		}
+	}
+
+	url, ok := args["url"].(string)
+	if !ok {
+		return CallToolResult{
+			Content: []ContentItem{{Type: "text", Text: "Error: 'url' parameter is required and must be a string"}},
+			IsError: true,
+		}
+	}
+
+	// Get the pending auth
+	s.authMutex.Lock()
+	pending, exists := s.pendingAuths[url]
+	if exists {
+		// Remove it from pending regardless of outcome
+		delete(s.pendingAuths, url)
+	}
+	s.authMutex.Unlock()
+
+	if !exists {
+		return CallToolResult{
+			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("❌ No pending authentication found for `%s`.\n\nPlease start authentication first with `pelican_auth`.", url)}},
+			IsError: true,
+		}
+	}
+
+	// Check if the auth has expired
+	elapsed := time.Since(pending.createdAt)
+	maxDuration := deviceAuthTimeout
+	if pending.authInfo.ExpiresIn > 0 && time.Duration(pending.authInfo.ExpiresIn)*time.Second < maxDuration {
+		maxDuration = time.Duration(pending.authInfo.ExpiresIn) * time.Second
+	}
+
+	if elapsed > maxDuration {
+		return CallToolResult{
+			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("❌ **Authentication expired.** The authorization request for `%s` has expired.\n\nPlease start a new authentication with `pelican_auth`.", url)}},
+			IsError: true,
+		}
+	}
+
+	// Create a timeout context - use the shorter of remaining time or our poll timeout
+	remaining := maxDuration - elapsed
+	timeout := authCompletionPollTimeout
+	if remaining < timeout {
+		timeout = remaining
+	}
 	authCtx, cancel := context.WithTimeout(s.ctx, timeout)
 	defer cancel()
 
-	// Poll for completion - this blocks until the user authorizes, times out, or context is cancelled
-	token, err := client.CompleteDeviceAuth(authCtx, url, authInfo)
+	// Poll for completion
+	token, err := client.CompleteDeviceAuth(authCtx, url, pending.authInfo)
 	if err != nil {
 		if authCtx.Err() == context.DeadlineExceeded {
 			return CallToolResult{
-				Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("%s\n\n❌ **Authentication timed out.** Please try again with `pelican_auth` if you need more time.", message)}},
+				Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("⏳ **Still waiting for authorization.**\n\nIf you haven't completed authorization yet, please visit the URL and approve the request, then call `pelican_auth_complete` again.\n\nIf you've already authorized, there might be a delay. Please wait a moment and try again.")}},
 				IsError: true,
 			}
 		}
 		return CallToolResult{
-			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("%s\n\n❌ **Authorization failed:** %v", message, err)}},
+			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("❌ **Authorization failed:** %v\n\nPlease start a new authentication with `pelican_auth`.", err)}},
 			IsError: true,
 		}
 	}
 
 	// Don't display the token itself for security reasons
-	_ = token // Token is cached by CompleteDeviceAuth, we just need to confirm success
-
-	successMessage := fmt.Sprintf("%s\n\n✅ **Authorization successful!** Token has been cached.\n\nYou can now access protected resources at `%s`", message, url)
+	_ = token
 
 	return CallToolResult{
-		Content: []ContentItem{{Type: "text", Text: successMessage}},
+		Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("✅ **Authorization successful!** Token has been cached.\n\nYou can now access protected resources at `%s`.", url)}},
 		IsError: false,
 	}
 }

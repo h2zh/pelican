@@ -25,9 +25,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/pelicanplatform/pelican/client"
 	"github.com/pelicanplatform/pelican/config"
 )
 
@@ -36,20 +39,30 @@ type Flusher interface {
 	Flush() error
 }
 
+// pendingAuth stores the state for an in-progress device authentication
+type pendingAuth struct {
+	authInfo  *client.DeviceAuthInfo
+	url       string
+	createdAt time.Time
+}
+
 // Server implements the MCP server
 type Server struct {
-	reader      *bufio.Reader
-	writer      io.Writer
-	ctx         context.Context
-	initialized bool
+	reader       *bufio.Reader
+	writer       io.Writer
+	ctx          context.Context
+	initialized  bool
+	pendingAuths map[string]*pendingAuth // Map from URL to pending auth info
+	authMutex    sync.Mutex
 }
 
 // NewServer creates a new MCP server
 func NewServer(ctx context.Context, reader io.Reader, writer io.Writer) *Server {
 	return &Server{
-		reader: bufio.NewReader(reader),
-		writer: writer,
-		ctx:    ctx,
+		reader:       bufio.NewReader(reader),
+		writer:       writer,
+		ctx:          ctx,
+		pendingAuths: make(map[string]*pendingAuth),
 	}
 }
 
@@ -196,6 +209,8 @@ func (s *Server) handleCallTool(req *JSONRPCRequest) error {
 		result = s.handleList(params.Arguments)
 	case "pelican_auth":
 		result = s.handleAuth(params.Arguments)
+	case "pelican_auth_complete":
+		result = s.handleAuthComplete(params.Arguments)
 	default:
 		return s.sendError(req.ID, -32602, "Unknown tool", params.Name)
 	}

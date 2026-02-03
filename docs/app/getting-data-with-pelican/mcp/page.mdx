@@ -105,7 +105,7 @@ Copilot will use the Pelican MCP server to download the file.
 
 ## Available Tools
 
-Once configured, your AI assistant has access to four Pelican tools:
+Once configured, your AI assistant has access to five Pelican tools:
 
 ### pelican_download
 
@@ -147,9 +147,9 @@ Lists the contents of a Pelican collection.
 
 ### pelican_auth
 
-Authenticates to a protected Pelican namespace using OAuth device flow.
-When accessing a protected namespace, use this tool to get a verification URL that you can click to authorize access.
-After authorization, the token is cached for future operations.
+Starts authentication to a protected Pelican namespace using OAuth device flow.
+This tool returns a verification URL immediately that you can click to authorize access.
+After authorization, call `pelican_auth_complete` to finish the authentication process.
 
 **Example prompts**:
 - "Authenticate to pelican://osg-htc.org/protected/data/"
@@ -159,11 +159,20 @@ After authorization, the token is cached for future operations.
 **Parameters**:
 - `url`: The Pelican URL of the protected resource to authenticate for
 
-**How it works**:
-1. The tool initiates an OAuth device flow and returns a verification URL
-2. Click the URL to open it in your browser
-3. Complete the authorization in your browser
-4. The token is automatically cached for future operations
+### pelican_auth_complete
+
+Completes the OAuth device flow authentication after the user has visited the verification URL.
+Call this after the user confirms they have completed authorization in their browser.
+
+**Parameters**:
+- `url`: The same Pelican URL that was used with `pelican_auth`
+
+**How authentication works (two-step process)**:
+1. Call `pelican_auth` - returns a verification URL immediately
+2. User clicks the URL and completes authorization in their browser
+3. User tells the AI they have completed authorization
+4. AI calls `pelican_auth_complete` to verify and cache the token
+5. The token is now cached for future operations
 
 ## Example Workflows
 
@@ -174,16 +183,24 @@ User: I need to download data from pelican://osg-htc.org/protected/data/file.txt
 but it requires authentication.
 
 AI: I'll help you authenticate.
-Let me initiate the authentication process.
 [Uses pelican_auth tool]
 
-To authenticate, please visit this URL and approve the request:
-https://cilogon.org/device?user_code=ABCD-EFGH
+🔐 Authentication Required
 
-Waiting for authorization...
+To access the protected namespace, please:
+1. Click or visit this URL to authenticate:
+   https://cilogon.org/device?user_code=ABCD-EFGH
+2. Complete the authorization in your browser
 
-Authorization successful!
-You can now access protected resources.
+You have 3 minutes to complete authentication.
+Let me know when you're done!
+
+User: Done, I authorized it.
+
+AI: Great! Let me verify the authorization.
+[Uses pelican_auth_complete tool]
+
+✅ Authorization successful! Token has been cached.
 Now let me download the file.
 [Uses pelican_download tool]
 Successfully downloaded to ./file.txt
