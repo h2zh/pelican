@@ -82,22 +82,23 @@ func (s *Server) Run() error {
 				log.Info("Client disconnected")
 				return nil
 			}
+			log.Errorf("Error reading request: %v", err)
 			return fmt.Errorf("error reading request: %w", err)
 		}
 
 		var req JSONRPCRequest
 		if err := json.Unmarshal(line, &req); err != nil {
-			log.Errorf("Error parsing JSON-RPC request: %v", err)
+			log.Errorf("Error parsing JSON-RPC request: %v (raw: %s)", err, string(line))
 			if sendErr := s.sendError(nil, -32700, "Parse error", nil); sendErr != nil {
 				log.Errorf("Failed to send error response: %v", sendErr)
 			}
 			continue
 		}
 
-		log.Debugf("Received request: %s (ID: %v)", req.Method, req.ID)
+		log.Infof("Received request: method=%s, id=%v", req.Method, req.ID)
 
 		if err := s.handleRequest(&req); err != nil {
-			log.Errorf("Error handling request: %v", err)
+			log.Errorf("Error handling request %s: %v", req.Method, err)
 		}
 	}
 }
@@ -144,8 +145,13 @@ func (s *Server) handleInitialize(req *JSONRPCRequest) error {
 		return s.sendError(req.ID, -32602, "Invalid params", err.Error())
 	}
 
+	log.Infof("Received initialize request from client: %s (protocol version: %s)",
+		params.ClientInfo.Name, params.ProtocolVersion)
+
 	result := InitializeResult{
-		ProtocolVersion: "2025-11-17",
+		// Use a stable protocol version that's compatible with MCP clients
+		// The MCP protocol uses dates as version strings; 2024-11-05 is widely supported
+		ProtocolVersion: "2024-11-05",
 		Capabilities: map[string]interface{}{
 			"tools": map[string]interface{}{},
 		},
@@ -155,6 +161,7 @@ func (s *Server) handleInitialize(req *JSONRPCRequest) error {
 		},
 	}
 
+	log.Infof("Sending initialize response with protocol version: %s", result.ProtocolVersion)
 	return s.sendResponse(req.ID, result)
 }
 
@@ -201,15 +208,31 @@ func (s *Server) sendResponse(id interface{}, result interface{}) error {
 
 	data, err := json.Marshal(resp)
 	if err != nil {
+		log.Errorf("Error marshaling response: %v", err)
 		return fmt.Errorf("error marshaling response: %w", err)
 	}
 
 	data = append(data, '\n')
-	if _, err := s.writer.Write(data); err != nil {
+	n, err := s.writer.Write(data)
+	if err != nil {
+		log.Errorf("Error writing response: %v", err)
 		return fmt.Errorf("error writing response: %w", err)
 	}
 
-	log.Debugf("Sent response for ID: %v", id)
+	if n != len(data) {
+		log.Errorf("Incomplete write: wrote %d of %d bytes", n, len(data))
+		return fmt.Errorf("incomplete write: wrote %d of %d bytes", n, len(data))
+	}
+
+	// Flush if the writer supports it (e.g., bufio.Writer)
+	if flusher, ok := s.writer.(interface{ Flush() error }); ok {
+		if err := flusher.Flush(); err != nil {
+			log.Errorf("Error flushing response: %v", err)
+			return fmt.Errorf("error flushing response: %w", err)
+		}
+	}
+
+	log.Infof("Sent response for ID: %v (%d bytes)", id, len(data))
 	return nil
 }
 
@@ -227,14 +250,30 @@ func (s *Server) sendError(id interface{}, code int, message string, data interf
 
 	respData, err := json.Marshal(resp)
 	if err != nil {
+		log.Errorf("Error marshaling error response: %v", err)
 		return fmt.Errorf("error marshaling error response: %w", err)
 	}
 
 	respData = append(respData, '\n')
-	if _, err := s.writer.Write(respData); err != nil {
+	n, err := s.writer.Write(respData)
+	if err != nil {
+		log.Errorf("Error writing error response: %v", err)
 		return fmt.Errorf("error writing error response: %w", err)
 	}
 
-	log.Debugf("Sent error response for ID: %v", id)
+	if n != len(respData) {
+		log.Errorf("Incomplete write: wrote %d of %d bytes", n, len(respData))
+		return fmt.Errorf("incomplete write: wrote %d of %d bytes", n, len(respData))
+	}
+
+	// Flush if the writer supports it
+	if flusher, ok := s.writer.(interface{ Flush() error }); ok {
+		if err := flusher.Flush(); err != nil {
+			log.Errorf("Error flushing error response: %v", err)
+			return fmt.Errorf("error flushing error response: %w", err)
+		}
+	}
+
+	log.Infof("Sent error response for ID: %v (code: %d, message: %s)", id, code, message)
 	return nil
 }
