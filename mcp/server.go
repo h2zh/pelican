@@ -31,6 +31,11 @@ import (
 	"github.com/pelicanplatform/pelican/config"
 )
 
+// Flusher is an interface for writers that support flushing buffered data
+type Flusher interface {
+	Flush() error
+}
+
 // Server implements the MCP server
 type Server struct {
 	reader      *bufio.Reader
@@ -225,7 +230,7 @@ func (s *Server) sendResponse(id interface{}, result interface{}) error {
 	}
 
 	// Flush if the writer supports it (e.g., bufio.Writer)
-	if flusher, ok := s.writer.(interface{ Flush() error }); ok {
+	if flusher, ok := s.writer.(Flusher); ok {
 		if err := flusher.Flush(); err != nil {
 			log.Errorf("Error flushing response: %v", err)
 			return fmt.Errorf("error flushing response: %w", err)
@@ -267,7 +272,7 @@ func (s *Server) sendError(id interface{}, code int, message string, data interf
 	}
 
 	// Flush if the writer supports it
-	if flusher, ok := s.writer.(interface{ Flush() error }); ok {
+	if flusher, ok := s.writer.(Flusher); ok {
 		if err := flusher.Flush(); err != nil {
 			log.Errorf("Error flushing error response: %v", err)
 			return fmt.Errorf("error flushing error response: %w", err)
