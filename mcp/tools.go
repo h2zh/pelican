@@ -411,8 +411,8 @@ func (s *Server) handleAuthComplete(args map[string]interface{}) CallToolResult 
 	elapsed := time.Since(pending.createdAt)
 	maxDuration := time.Duration(pending.authInfo.ExpiresIn) * time.Second
 	if maxDuration <= 0 {
-		// Default to 15 minutes if server didn't specify
-		maxDuration = 15 * time.Minute
+		// Default to 1 minute if server didn't specify
+		maxDuration = 1 * time.Minute
 	}
 
 	if elapsed > maxDuration {
