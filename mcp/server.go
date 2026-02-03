@@ -51,8 +51,14 @@ func NewServer(ctx context.Context, reader io.Reader, writer io.Writer) *Server 
 // ensureInitialized initializes the Pelican client if not already done
 func (s *Server) ensureInitialized() error {
 	if !s.initialized {
-		// Set environment variable to skip terminal check for device auth flow
-		// This allows the MCP server to initiate device auth in non-terminal environments
+		// Set environment variable to skip terminal check for device auth flow.
+		// The MCP server runs as a subprocess spawned by AI assistants (like Claude Code or
+		// VS Code Copilot) which don't have a TTY attached. The terminal check in oauth2.AcquireToken
+		// would normally prevent device auth from working in non-terminal environments.
+		// By setting this env var, we enable the device auth flow to work, allowing the MCP server
+		// to return verification URLs that users can click to authenticate.
+		// This is safe because the MCP protocol allows returning the verification URL to the user
+		// through the AI assistant's interface.
 		os.Setenv(config.GetPreferredPrefix().String()+"_SKIP_TERMINAL_CHECK", "true")
 
 		if err := config.InitClient(); err != nil {

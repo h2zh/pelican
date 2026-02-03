@@ -271,15 +271,15 @@ func PollDeviceAuth(ctx context.Context, authInfo *DeviceAuthInfo) (*config.Toke
 		Interval:   authInfo.Interval,
 	}
 
-	upstream_token, err := authInfo.oauth2Config.Poll(authCtx, deviceAuth)
+	upstreamToken, err := authInfo.oauth2Config.Poll(authCtx, deviceAuth)
 	if err != nil {
 		return nil, err
 	}
 
 	token := config.TokenEntry{
-		Expiration:   upstream_token.Expiry.Unix(),
-		AccessToken:  upstream_token.AccessToken,
-		RefreshToken: upstream_token.RefreshToken,
+		Expiration:   upstreamToken.Expiry.Unix(),
+		AccessToken:  upstreamToken.AccessToken,
+		RefreshToken: upstreamToken.RefreshToken,
 	}
 	return &token, nil
 }
