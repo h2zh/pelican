@@ -28,9 +28,6 @@ import (
 	"github.com/pelicanplatform/pelican/client"
 )
 
-// Default timeout for OAuth device flow authentication (3 minutes)
-const deviceAuthTimeout = 3 * time.Minute
-
 // Timeout for polling in pelican_auth_complete (should be less than MCP client timeout, typically 60s)
 const authCompletionPollTimeout = 45 * time.Second
 
@@ -341,12 +338,11 @@ func (s *Server) handleAuth(args map[string]interface{}) CallToolResult {
 	s.authMutex.Lock()
 	// Clean up expired pending auths to prevent memory leaks
 	for u, pa := range s.pendingAuths {
-		maxAge := deviceAuthTimeout
-		if pa.authInfo.ExpiresIn > 0 && time.Duration(pa.authInfo.ExpiresIn)*time.Second < maxAge {
-			maxAge = time.Duration(pa.authInfo.ExpiresIn) * time.Second
-		}
-		if time.Since(pa.createdAt) > maxAge {
-			delete(s.pendingAuths, u)
+		if pa.authInfo.ExpiresIn > 0 {
+			maxAge := time.Duration(pa.authInfo.ExpiresIn) * time.Second
+			if time.Since(pa.createdAt) > maxAge {
+				delete(s.pendingAuths, u)
+			}
 		}
 	}
 	// Store the new pending auth
@@ -357,11 +353,8 @@ func (s *Server) handleAuth(args map[string]interface{}) CallToolResult {
 	}
 	s.authMutex.Unlock()
 
-	// Calculate expiry time
+	// Calculate expiry time from server's ExpiresIn
 	expiryMinutes := float64(authInfo.ExpiresIn) / 60
-	if expiryMinutes > float64(deviceAuthTimeout.Minutes()) {
-		expiryMinutes = float64(deviceAuthTimeout.Minutes())
-	}
 
 	// Build response message with the verification URL
 	var message string
@@ -414,11 +407,12 @@ func (s *Server) handleAuthComplete(args map[string]interface{}) CallToolResult 
 		}
 	}
 
-	// Check if the auth has expired
+	// Check if the auth has expired using server's ExpiresIn
 	elapsed := time.Since(pending.createdAt)
-	maxDuration := deviceAuthTimeout
-	if pending.authInfo.ExpiresIn > 0 && time.Duration(pending.authInfo.ExpiresIn)*time.Second < maxDuration {
-		maxDuration = time.Duration(pending.authInfo.ExpiresIn) * time.Second
+	maxDuration := time.Duration(pending.authInfo.ExpiresIn) * time.Second
+	if maxDuration <= 0 {
+		// Default to 15 minutes if server didn't specify
+		maxDuration = 15 * time.Minute
 	}
 
 	if elapsed > maxDuration {
