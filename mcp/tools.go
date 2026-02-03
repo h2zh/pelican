@@ -92,6 +92,20 @@ func getToolsList() []Tool {
 				"required": []string{"url"},
 			},
 		},
+		{
+			Name:        "pelican_auth",
+			Description: "Authenticate to a protected Pelican namespace using OAuth device flow. This returns a verification URL that the user must visit to authorize access. After authorization, the token is automatically cached for future operations.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"url": map[string]interface{}{
+						"type":        "string",
+						"description": "The Pelican URL of the protected resource to authenticate for (e.g., pelican://osg-htc.org/protected/path)",
+					},
+				},
+				"required": []string{"url"},
+			},
+		},
 	}
 }
 
@@ -269,6 +283,64 @@ func (s *Server) handleList(args map[string]interface{}) CallToolResult {
 
 	return CallToolResult{
 		Content: []ContentItem{{Type: "text", Text: message}},
+		IsError: false,
+	}
+}
+
+// handleAuth implements the pelican_auth tool for authenticating to protected namespaces
+func (s *Server) handleAuth(args map[string]interface{}) CallToolResult {
+	// Ensure Pelican client is initialized
+	if err := s.ensureInitialized(); err != nil {
+		return CallToolResult{
+			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("Error: Failed to initialize Pelican client: %v", err)}},
+			IsError: true,
+		}
+	}
+
+	url, ok := args["url"].(string)
+	if !ok {
+		return CallToolResult{
+			Content: []ContentItem{{Type: "text", Text: "Error: 'url' parameter is required and must be a string"}},
+			IsError: true,
+		}
+	}
+
+	// Initiate device auth
+	authInfo, err := client.InitiateDeviceAuth(s.ctx, url)
+	if err != nil {
+		return CallToolResult{
+			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("Failed to initiate authentication: %v", err)}},
+			IsError: true,
+		}
+	}
+
+	// Build response message with the verification URL
+	var message string
+	if authInfo.VerificationURLComplete != "" {
+		message = fmt.Sprintf("To authenticate for accessing %s, please visit the following URL and approve the request:\n\n%s\n\n", url, authInfo.VerificationURLComplete)
+	} else {
+		message = fmt.Sprintf("To authenticate for accessing %s, please visit the following URL:\n\n%s\n\nand enter this code: %s\n\n", url, authInfo.VerificationURL, authInfo.UserCode)
+	}
+	message += fmt.Sprintf("This authorization will expire in %d seconds.\n\n", authInfo.ExpiresIn)
+	message += "Waiting for authorization..."
+
+	// Send initial response with the URL
+	// Note: We need to poll for completion in the background
+	// For now, we'll do a synchronous wait (this will block the MCP call)
+	token, err := client.CompleteDeviceAuth(s.ctx, url, authInfo)
+	if err != nil {
+		return CallToolResult{
+			Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("%s\n\nAuthorization failed: %v", message, err)}},
+			IsError: true,
+		}
+	}
+
+	successMessage := message + "\n\nAuthorization successful! Token has been cached.\n"
+	successMessage += fmt.Sprintf("You can now access protected resources at %s\n", url)
+	successMessage += fmt.Sprintf("Token (first 20 chars): %s...\n", token[:min(20, len(token))])
+
+	return CallToolResult{
+		Content: []ContentItem{{Type: "text", Text: successMessage}},
 		IsError: false,
 	}
 }

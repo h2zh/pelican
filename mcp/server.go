@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 
 	log "github.com/sirupsen/logrus"
 
@@ -50,6 +51,10 @@ func NewServer(ctx context.Context, reader io.Reader, writer io.Writer) *Server 
 // ensureInitialized initializes the Pelican client if not already done
 func (s *Server) ensureInitialized() error {
 	if !s.initialized {
+		// Set environment variable to skip terminal check for device auth flow
+		// This allows the MCP server to initiate device auth in non-terminal environments
+		os.Setenv(config.GetPreferredPrefix().String()+"_SKIP_TERMINAL_CHECK", "true")
+
 		if err := config.InitClient(); err != nil {
 			log.Errorf("Failed to initialize Pelican client: %v", err)
 			return fmt.Errorf("failed to initialize Pelican client: %w", err)
@@ -171,6 +176,8 @@ func (s *Server) handleCallTool(req *JSONRPCRequest) error {
 		result = s.handleStat(params.Arguments)
 	case "pelican_list":
 		result = s.handleList(params.Arguments)
+	case "pelican_auth":
+		result = s.handleAuth(params.Arguments)
 	default:
 		return s.sendError(req.ID, -32602, "Unknown tool", params.Name)
 	}
