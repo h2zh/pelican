@@ -936,8 +936,8 @@ type DeviceAuthInfo struct {
 // After the user visits the verification URL and completes authorization,
 // call CompleteDeviceAuth to obtain the token.
 func InitiateDeviceAuth(ctx context.Context, sourceUrl string) (*DeviceAuthInfo, error) {
-	// Parse the URL
-	pUrl, err := pelican_url.Parse(sourceUrl, nil, nil)
+	// Parse the URL with federation discovery enabled
+	pUrl, err := ParseRemoteAsPUrl(ctx, sourceUrl)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to parse Pelican URL")
 	}
@@ -1052,8 +1052,8 @@ func CompleteDeviceAuth(ctx context.Context, sourceUrl string, authInfo *DeviceA
 		return "", errors.Wrap(err, "failed to complete device authorization")
 	}
 
-	// Parse the URL to get director info for caching
-	pUrl, err := pelican_url.Parse(sourceUrl, nil, nil)
+	// Parse the URL with federation discovery to get director info for caching
+	pUrl, err := ParseRemoteAsPUrl(ctx, sourceUrl)
 	if err != nil {
 		return "", errors.Wrap(err, "failed to parse Pelican URL")
 	}
