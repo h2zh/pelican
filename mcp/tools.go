@@ -324,9 +324,10 @@ func (s *Server) handleAuth(args map[string]interface{}) CallToolResult {
 	message += fmt.Sprintf("This authorization will expire in %d seconds.\n\n", authInfo.ExpiresIn)
 	message += "Waiting for authorization..."
 
-	// Send initial response with the URL
-	// Note: We need to poll for completion in the background
-	// For now, we'll do a synchronous wait (this will block the MCP call)
+	// Poll for completion - this blocks until the user authorizes or the request expires.
+	// The blocking behavior is intentional: the MCP protocol expects a response with the
+	// final result, and the AI assistant will display the verification URL message while
+	// waiting. The expiry time (typically 5-15 minutes) serves as a natural timeout.
 	token, err := client.CompleteDeviceAuth(s.ctx, url, authInfo)
 	if err != nil {
 		return CallToolResult{
@@ -335,9 +336,11 @@ func (s *Server) handleAuth(args map[string]interface{}) CallToolResult {
 		}
 	}
 
+	// Don't display the token itself for security reasons
+	_ = token // Token is cached by CompleteDeviceAuth, we just need to confirm success
+
 	successMessage := message + "\n\nAuthorization successful! Token has been cached.\n"
 	successMessage += fmt.Sprintf("You can now access protected resources at %s\n", url)
-	successMessage += fmt.Sprintf("Token (first 20 chars): %s...\n", token[:min(20, len(token))])
 
 	return CallToolResult{
 		Content: []ContentItem{{Type: "text", Text: successMessage}},

@@ -195,11 +195,15 @@ func InitiateDeviceAuth(ctx context.Context, issuerUrl string, entry *config.Pre
 	}
 
 	// Determine the path to include in the scope that we request.
-	pathCleaned := path.Clean(osdfPath)[len(entry.Prefix):]
+	cleanedPath := path.Clean(osdfPath)
+	if len(cleanedPath) < len(entry.Prefix) {
+		return nil, fmt.Errorf("path %s is shorter than prefix %s", osdfPath, entry.Prefix)
+	}
+	pathCleaned := cleanedPath[len(entry.Prefix):]
 
 	if len(dirResp.XPelTokGenHdr.Issuers) != 0 {
-		if len(dirResp.XPelTokGenHdr.BasePaths) > 0 {
-			pathCleaned = path.Clean(osdfPath)[len(dirResp.XPelTokGenHdr.BasePaths[0]):]
+		if len(dirResp.XPelTokGenHdr.BasePaths) > 0 && len(cleanedPath) >= len(dirResp.XPelTokGenHdr.BasePaths[0]) {
+			pathCleaned = cleanedPath[len(dirResp.XPelTokGenHdr.BasePaths[0]):]
 		}
 	}
 
