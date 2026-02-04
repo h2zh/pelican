@@ -161,8 +161,15 @@ func (s *Server) handleDownload(args map[string]interface{}) CallToolResult {
 
 	// Build transfer options
 	var options []client.TransferOption
+
+	// First check if token was explicitly provided
 	if token, ok := args["token"].(string); ok && token != "" {
 		options = append(options, client.WithToken(token))
+	} else {
+		// Check for cached token from previous authentication
+		if cachedToken := s.getTokenForURL(source); cachedToken != "" {
+			options = append(options, client.WithToken(cachedToken))
+		}
 	}
 
 	// Create destination directory if it doesn't exist
@@ -219,8 +226,15 @@ func (s *Server) handleStat(args map[string]interface{}) CallToolResult {
 
 	// Build transfer options
 	var options []client.TransferOption
+
+	// First check if token was explicitly provided
 	if token, ok := args["token"].(string); ok && token != "" {
 		options = append(options, client.WithToken(token))
+	} else {
+		// Check for cached token from previous authentication
+		if cachedToken := s.getTokenForURL(url); cachedToken != "" {
+			options = append(options, client.WithToken(cachedToken))
+		}
 	}
 
 	// Get file info
@@ -272,8 +286,15 @@ func (s *Server) handleList(args map[string]interface{}) CallToolResult {
 
 	// Build transfer options
 	var options []client.TransferOption
+
+	// First check if token was explicitly provided
 	if token, ok := args["token"].(string); ok && token != "" {
 		options = append(options, client.WithToken(token))
+	} else {
+		// Check for cached token from previous authentication
+		if cachedToken := s.getTokenForURL(url); cachedToken != "" {
+			options = append(options, client.WithToken(cachedToken))
+		}
 	}
 
 	// List directory contents
@@ -432,7 +453,7 @@ func (s *Server) handleAuthComplete(args map[string]interface{}) CallToolResult 
 	defer cancel()
 
 	// Poll for completion
-	token, err := client.CompleteDeviceAuth(authCtx, url, pending.authInfo)
+	token, namespace, err := client.CompleteDeviceAuth(authCtx, url, pending.authInfo)
 	if err != nil {
 		if authCtx.Err() == context.DeadlineExceeded {
 			return CallToolResult{
@@ -446,8 +467,10 @@ func (s *Server) handleAuthComplete(args map[string]interface{}) CallToolResult 
 		}
 	}
 
-	// Don't display the token itself for security reasons
-	_ = token
+	// Cache the token in the MCP server's memory for use by subsequent operations
+	if namespace != "" && token != "" {
+		s.cacheToken(namespace, token)
+	}
 
 	return CallToolResult{
 		Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("✅ **Authorization successful!** Token has been cached.\n\nYou can now access protected resources at `%s`.", url)}},

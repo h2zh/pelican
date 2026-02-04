@@ -1047,26 +1047,27 @@ func InitiateDeviceAuth(ctx context.Context, sourceUrl string) (*DeviceAuthInfo,
 // CompleteDeviceAuth polls the OAuth2 server to complete the device authorization flow.
 // This function blocks until the user authorizes or the context is cancelled.
 // On success, the token is cached for future use.
-func CompleteDeviceAuth(ctx context.Context, sourceUrl string, authInfo *DeviceAuthInfo) (string, error) {
+// Returns the access token and the namespace prefix it's valid for.
+func CompleteDeviceAuth(ctx context.Context, sourceUrl string, authInfo *DeviceAuthInfo) (tokenStr string, namespace string, err error) {
 	if authInfo == nil || authInfo.authInfo == nil {
-		return "", errors.New("invalid device auth info")
+		return "", "", errors.New("invalid device auth info")
 	}
 
 	// Poll for the token
 	token, err := oauth2.PollDeviceAuth(ctx, authInfo.authInfo)
 	if err != nil {
-		return "", errors.Wrap(err, "failed to complete device authorization")
+		return "", "", errors.Wrap(err, "failed to complete device authorization")
 	}
 
 	// Parse the URL with federation discovery to get director info for caching
 	pUrl, err := ParseRemoteAsPUrl(ctx, sourceUrl)
 	if err != nil {
-		return "", errors.Wrap(err, "failed to parse Pelican URL")
+		return "", "", errors.Wrap(err, "failed to parse Pelican URL")
 	}
 
 	dirResp, err := GetDirectorInfoForPath(ctx, pUrl, http.MethodGet, "")
 	if err != nil {
-		return "", errors.Wrap(err, "failed to get director info")
+		return "", "", errors.Wrap(err, "failed to get director info")
 	}
 
 	nsPrefix := dirResp.XPelNsHdr.Namespace
@@ -1075,7 +1076,7 @@ func CompleteDeviceAuth(ctx context.Context, sourceUrl string, authInfo *DeviceA
 	osdfConfig, err := config.GetCredentialConfigContents()
 	if err != nil {
 		log.Warningln("Failed to get credential config for caching token:", err)
-		return token.AccessToken, nil
+		return token.AccessToken, nsPrefix, nil
 	}
 
 	for idx, entry := range osdfConfig.OSDF.OauthClient {
@@ -1088,5 +1089,5 @@ func CompleteDeviceAuth(ctx context.Context, sourceUrl string, authInfo *DeviceA
 		}
 	}
 
-	return token.AccessToken, nil
+	return token.AccessToken, nsPrefix, nil
 }

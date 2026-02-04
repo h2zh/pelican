@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,6 +47,13 @@ type pendingAuth struct {
 	createdAt time.Time
 }
 
+// cachedToken stores an acquired token for a namespace
+type cachedToken struct {
+	token     string
+	namespace string // The namespace prefix this token is valid for
+	createdAt time.Time
+}
+
 // Server implements the MCP server
 type Server struct {
 	reader       *bufio.Reader
@@ -53,6 +61,7 @@ type Server struct {
 	ctx          context.Context
 	initialized  bool
 	pendingAuths map[string]*pendingAuth // Map from URL to pending auth info
+	cachedTokens map[string]*cachedToken // Map from namespace prefix to cached token
 	authMutex    sync.Mutex
 }
 
@@ -63,6 +72,7 @@ func NewServer(ctx context.Context, reader io.Reader, writer io.Writer) *Server 
 		writer:       writer,
 		ctx:          ctx,
 		pendingAuths: make(map[string]*pendingAuth),
+		cachedTokens: make(map[string]*cachedToken),
 	}
 }
 
@@ -87,6 +97,51 @@ func (s *Server) ensureInitialized() error {
 		log.Info("Pelican client initialized")
 	}
 	return nil
+}
+
+// cacheToken stores a token for a given namespace
+func (s *Server) cacheToken(namespace, token string) {
+	s.authMutex.Lock()
+	defer s.authMutex.Unlock()
+	s.cachedTokens[namespace] = &cachedToken{
+		token:     token,
+		namespace: namespace,
+		createdAt: time.Now(),
+	}
+	log.Infof("Cached token for namespace: %s", namespace)
+}
+
+// getTokenForURL attempts to find a cached token that matches the given URL
+func (s *Server) getTokenForURL(urlStr string) string {
+	s.authMutex.Lock()
+	defer s.authMutex.Unlock()
+
+	// Extract the path from the URL
+	var path string
+	if strings.HasPrefix(urlStr, "pelican://") || strings.HasPrefix(urlStr, "osdf://") {
+		// URL format: pelican://host/path or osdf://path
+		parts := strings.SplitN(urlStr, "://", 2)
+		if len(parts) == 2 {
+			hostAndPath := parts[1]
+			slashIdx := strings.Index(hostAndPath, "/")
+			if slashIdx != -1 {
+				path = hostAndPath[slashIdx:]
+			}
+		}
+	}
+
+	if path == "" {
+		return ""
+	}
+
+	// Check each cached token to see if its namespace matches the URL path
+	for namespace, cached := range s.cachedTokens {
+		if strings.HasPrefix(path, namespace) {
+			log.Debugf("Found cached token for URL %s (namespace: %s)", urlStr, namespace)
+			return cached.token
+		}
+	}
+	return ""
 }
 
 // Run starts the MCP server and handles requests
