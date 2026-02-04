@@ -36,7 +36,7 @@ func getToolsList() []Tool {
 	return []Tool{
 		{
 			Name:        "pelican_download",
-			Description: "Download an object from a Pelican URL to a local destination. Supports both single files and recursive directory downloads.",
+			Description: "Download an object from a Pelican URL to a local destination. IMPORTANT: Always ask the user to provide a destination directory/path before calling this tool. Do not assume or guess the destination - the user must explicitly specify where to save the file to avoid permission issues.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -46,7 +46,7 @@ func getToolsList() []Tool {
 					},
 					"destination": map[string]interface{}{
 						"type":        "string",
-						"description": "The local file path where the object should be saved",
+						"description": "The local file path where the object should be saved. MUST be provided by the user - do not assume a path. Ask the user: 'Where would you like me to save this file?'",
 					},
 					"recursive": map[string]interface{}{
 						"type":        "boolean",
