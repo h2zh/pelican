@@ -25,6 +25,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
+	"github.com/pelicanplatform/pelican/logging"
 	"github.com/pelicanplatform/pelican/mcp"
 )
 
@@ -67,6 +68,11 @@ func init() {
 
 func runMCPServe(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
+
+	// Flush the log buffer immediately to enable log output.
+	// The main.go sets up log buffering which discards logs until FlushLogs is called.
+	// For MCP, we need logs to go to stderr immediately for debugging.
+	logging.FlushLogs(false)
 
 	// Set up logging to stderr so it doesn't interfere with JSON-RPC on stdout
 	log.SetOutput(os.Stderr)
