@@ -159,11 +159,13 @@ func setLogLevel(cmd *cobra.Command, args []string) error {
 
 	// Parse response
 	type LogLevelChangeResponse struct {
-		ChangeID      string    `json:"changeId"`
-		Level         string    `json:"level"`
-		ParameterName string    `json:"parameterName"`
-		EndTime       time.Time `json:"endTime"`
-		Remaining     int       `json:"remainingSeconds"`
+		ChangeID        string     `json:"changeId"`
+		Level           string     `json:"level"`
+		ParameterName   string     `json:"parameterName"`
+		EndTime         time.Time  `json:"endTime"`
+		Remaining       int        `json:"remainingSeconds"`
+		RequiresRestart bool       `json:"requiresRestart"`
+		EffectiveAt     *time.Time `json:"effectiveAt"`
 	}
 
 	var response LogLevelChangeResponse
@@ -174,6 +176,12 @@ func setLogLevel(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Log level for %s successfully changed to '%s' for %d seconds\n", response.ParameterName, response.Level, response.Remaining)
 	fmt.Printf("Change ID: %s\n", response.ChangeID)
 	fmt.Printf("Will revert at: %s\n", response.EndTime.Format(time.RFC3339))
+	if response.RequiresRestart {
+		if response.EffectiveAt != nil {
+			fmt.Printf("Note: This parameter requires an XRootD restart (with a graceful drain period).\n")
+			fmt.Printf("      Change will take effect at approximately: %s\n", response.EffectiveAt.Format(time.RFC3339))
+		}
+	}
 	return nil
 }
 
