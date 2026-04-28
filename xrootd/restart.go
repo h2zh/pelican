@@ -139,6 +139,13 @@ func RestartXrootd(opCtx context.Context, serverCtx context.Context, oldPids []i
 
 	daemon.SetExpectedRestart(true)
 	metrics.SetComponentHealthStatus(metrics.OriginCache_XRootD, metrics.StatusShuttingDown, "XRootD restart in progress")
+
+	restartInfosMu.RLock()
+	if len(restartInfos) == 0 {
+		restartInfosMu.RUnlock()
+		return nil, errors.New("restart requested before storing launcher information")
+	}
+
 	hasCMSD := false
 	for _, info := range restartInfos {
 		if info.useCMSD {
@@ -148,12 +155,6 @@ func RestartXrootd(opCtx context.Context, serverCtx context.Context, oldPids []i
 	}
 	if hasCMSD {
 		metrics.SetComponentHealthStatus(metrics.OriginCache_CMSD, metrics.StatusShuttingDown, "CMSD restart in progress")
-	}
-
-	restartInfosMu.RLock()
-	if len(restartInfos) == 0 {
-		restartInfosMu.RUnlock()
-		return nil, errors.New("restart requested before storing launcher information")
 	}
 
 	storedInfos := make([]restartInfo, len(restartInfos))
