@@ -289,11 +289,12 @@ func runGlobalPreRestart(serverCtx context.Context, infos []restartInfo) error {
 	}
 	// This advertisement assumes RestartXrootd has already set component health
 	// to "shutting down", so Director sees restart-in-progress state immediately.
-	log.Infof("Waiting %s for in-flight transfers before shutting down", param.Xrootd_ShutdownTimeout.GetDuration().String())
+	shutdownTimeout := param.Xrootd_ShutdownTimeout.GetDuration()
+	log.Infof("Waiting %s for in-flight transfers before shutting down", shutdownTimeout.String())
 	if advErr := advertiseServersFn(serverCtx, servers); advErr != nil {
 		log.Errorf("Failed to advertise before shutdown: %v", advErr)
 	}
-	time.Sleep(param.Xrootd_ShutdownTimeout.GetDuration())
+	time.Sleep(shutdownTimeout)
 	log.Info("Shutdown grace period elapsed; proceeding with shutdown and discarding incomplete transfers")
 	return nil
 }
