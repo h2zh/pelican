@@ -194,7 +194,6 @@ func OriginServe(ctx context.Context, engine *gin.Engine, egrp *errgroup.Group, 
 		launch := func(ls []daemon.Launcher) ([]int, error) {
 			return xrootd.LaunchDaemons(ctx, ls, egrp, portStartCallback)
 		}
-		xrootd.SetRestartAdvertiseFn(launcher_utils.Advertise)
 		xrootd.StoreRestartInfo(pids, launch, originServer, false, useCMSD, privileged)
 
 		// Register callback for xrootd logging configuration changes
