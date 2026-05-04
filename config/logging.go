@@ -305,9 +305,14 @@ func SetLogging(logLevel log.Level) {
 		}
 		globalTransform.hook.Store(newHook)
 
-		// Add our hooks back
+		// Add our hooks back.
+		// globalFilters must see all log messages so that regex callbacks work regardless of level.
+		// globalTransform must only be registered for hookLevel: writer.Hook.Fire writes
+		// unconditionally without re-checking LogLevels, so level filtering must happen here.
 		for _, lvl := range log.AllLevels {
 			newHooks[lvl] = append(newHooks[lvl], &globalFilters)
+		}
+		for _, lvl := range hookLevel {
 			newHooks[lvl] = append(newHooks[lvl], globalTransform)
 		}
 		globalTransformMu.Unlock()
