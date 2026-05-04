@@ -48,7 +48,6 @@ import (
 	"github.com/pelicanplatform/pelican/server_structs"
 	"github.com/pelicanplatform/pelican/server_utils"
 	"github.com/pelicanplatform/pelican/web_ui"
-	"github.com/pelicanplatform/pelican/xrootd"
 )
 
 var (
@@ -166,7 +165,7 @@ func LaunchModules(ctx context.Context, modules server_structs.ServerType) (serv
 	serversRequireAdvertisement := make([]server_structs.XRootDServer, 0)
 
 	if modules.IsEnabled(server_structs.OriginType) || modules.IsEnabled(server_structs.CacheType) {
-		xrootd.SetRestartAdvertiseFn(launcher_utils.Advertise)
+		initXrootdRestartAdvertise()
 	}
 
 	if modules.IsEnabled(server_structs.OriginType) {
