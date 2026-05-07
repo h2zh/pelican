@@ -172,6 +172,11 @@ func (o *PosixOrigin) validateExtra(e *OriginExport, _ int) error {
 	if param.Origin_Multiuser.GetBool() {
 		log.Infof("Skipping directory permission validation for export %q because multiuser mode is enabled "+
 			"(files are accessed as the requesting user, not the XRootD daemon user)", e.FederationPrefix)
+	} else if param.Origin_SkipPosixPermissionsCheck.GetBool() {
+		log.Warnf("Skipping directory permission validation for export %q because %s is enabled. "+
+			"The XRootD daemon user must still have appropriate permissions on the underlying storage; "+
+			"any misconfiguration will surface at runtime rather than at startup.",
+			e.FederationPrefix, param.Origin_SkipPosixPermissionsCheck.GetName())
 	} else {
 		if err := o.validatePosixPermissions(e.StoragePrefix, e.Capabilities, e.FederationPrefix); err != nil {
 			return err

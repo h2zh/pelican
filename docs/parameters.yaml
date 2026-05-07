@@ -1135,6 +1135,22 @@ root_default: true
 default: false
 components: ["origin"]
 ---
+name: Origin.SkipPosixPermissionsCheck
+description: |+
+  A bool indicating whether to skip the startup validation that the XRootD daemon user
+  has the filesystem permissions required by each export's declared capabilities.
+
+  This validation is normally helpful: it surfaces ownership/permission misconfigurations
+  before they manifest as opaque runtime errors. However, on filesystems that synthesize
+  ownership at stat(2) time -- for example some FUSE mounts, sshfs, or network filesystems
+  such as ResearchDrive -- a directory may appear to be owned by whichever user is
+  inspecting it, which can cause this stat-based check to produce false negatives or false
+  positives. Set this to true on such origins to bypass the check. The admin remains
+  responsible for ensuring the daemon user can read/write/list the underlying storage.
+type: bool
+default: false
+components: ["origin"]
+---
 name: Origin.MultiuserMinID
 description: |+
   The minimum UID/GID the multiuser origin will switch to when performing filesystem operations on behalf of a user.

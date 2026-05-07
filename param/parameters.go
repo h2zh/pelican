@@ -375,6 +375,7 @@ var runtimeConfigurableMap = map[string]bool{
 	"Origin.SelfTest": false,
 	"Origin.SelfTestInterval": false,
 	"Origin.SelfTestMaxAge": false,
+	"Origin.SkipPosixPermissionsCheck": false,
 	"Origin.StoragePrefix": false,
 	"Origin.StorageType": false,
 	"Origin.SupportedChecksumTypes": false,
@@ -967,6 +968,7 @@ var boolAccessors = map[string]func(*Config) bool{
 	"Origin.SSH.TunnelCallback": func(c *Config) bool { return c.Origin.SSH.TunnelCallback },
 	"Origin.ScitokensMapSubject": func(c *Config) bool { return c.Origin.ScitokensMapSubject },
 	"Origin.SelfTest": func(c *Config) bool { return c.Origin.SelfTest },
+	"Origin.SkipPosixPermissionsCheck": func(c *Config) bool { return c.Origin.SkipPosixPermissionsCheck },
 	"Registry.RequireCacheApproval": func(c *Config) bool { return c.Registry.RequireCacheApproval },
 	"Registry.RequireKeyChaining": func(c *Config) bool { return c.Registry.RequireKeyChaining },
 	"Registry.RequireOriginApproval": func(c *Config) bool { return c.Registry.RequireOriginApproval },
@@ -1439,6 +1441,7 @@ var allParameterNames = []string{
 	"Origin.SelfTest",
 	"Origin.SelfTestInterval",
 	"Origin.SelfTestMaxAge",
+	"Origin.SkipPosixPermissionsCheck",
 	"Origin.StoragePrefix",
 	"Origin.StorageType",
 	"Origin.SupportedChecksumTypes",
@@ -1883,6 +1886,7 @@ var (
 	Origin_SSH_TunnelCallback = BoolParam{"Origin.SSH.TunnelCallback"}
 	Origin_ScitokensMapSubject = BoolParam{"Origin.ScitokensMapSubject"}
 	Origin_SelfTest = BoolParam{"Origin.SelfTest"}
+	Origin_SkipPosixPermissionsCheck = BoolParam{"Origin.SkipPosixPermissionsCheck"}
 	Registry_RequireCacheApproval = BoolParam{"Registry.RequireCacheApproval"}
 	Registry_RequireKeyChaining = BoolParam{"Registry.RequireKeyChaining"}
 	Registry_RequireOriginApproval = BoolParam{"Registry.RequireOriginApproval"}
@@ -2304,6 +2308,7 @@ func init() {
 		"Origin.SSH.TunnelCallback": Origin_SSH_TunnelCallback,
 		"Origin.ScitokensMapSubject": Origin_ScitokensMapSubject,
 		"Origin.SelfTest": Origin_SelfTest,
+		"Origin.SkipPosixPermissionsCheck": Origin_SkipPosixPermissionsCheck,
 		"Registry.RequireCacheApproval": Registry_RequireCacheApproval,
 		"Registry.RequireKeyChaining": Registry_RequireKeyChaining,
 		"Registry.RequireOriginApproval": Registry_RequireOriginApproval,

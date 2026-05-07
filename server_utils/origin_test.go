@@ -1022,3 +1022,38 @@ func TestValidatePosixPermissions(t *testing.T) {
 		assert.Contains(t, errStr, "permissions", "error should mention permissions")
 	})
 }
+
+// TestValidateExtraSkipPosixPermissionsCheck verifies that setting
+// Origin.SkipPosixPermissionsCheck bypasses the daemon-user permission check in
+// validateExtra. This escape hatch is needed for filesystems whose stat(2) result
+// does not reliably reflect the daemon user's effective access (e.g. some FUSE or
+// network mounts that synthesize ownership per caller, such as ResearchDrive).
+func TestValidateExtraSkipPosixPermissionsCheck(t *testing.T) {
+	o := &PosixOrigin{}
+
+	// A directory the daemon user demonstrably cannot read.
+	tmpDir := t.TempDir()
+	require.NoError(t, os.Chmod(tmpDir, 0000))
+	t.Cleanup(func() {
+		_ = os.Chmod(tmpDir, 0755)
+	})
+
+	export := &OriginExport{
+		StoragePrefix:    tmpDir,
+		FederationPrefix: "/test/skip-perms",
+		Capabilities:     server_structs.Capabilities{Reads: true, Listings: true},
+	}
+
+	// Sanity check: with the knob off, validateExtra should reject this export.
+	ResetTestState()
+	err := o.validateExtra(export, 0)
+	require.Error(t, err, "expected validateExtra to fail when permissions are insufficient and skip is off")
+	assert.ErrorIs(t, err, ErrInvalidOriginConfig)
+
+	// With the knob on, validateExtra should accept the export despite the same
+	// (otherwise insufficient) permissions.
+	ResetTestState()
+	require.NoError(t, param.Origin_SkipPosixPermissionsCheck.Set(true))
+	err = o.validateExtra(export, 0)
+	assert.NoError(t, err, "expected validateExtra to skip the permissions check when the knob is set")
+}
