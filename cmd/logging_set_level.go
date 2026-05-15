@@ -159,11 +159,13 @@ func setLogLevel(cmd *cobra.Command, args []string) error {
 
 	// Parse response
 	type LogLevelChangeResponse struct {
-		ChangeID      string    `json:"changeId"`
-		Level         string    `json:"level"`
-		ParameterName string    `json:"parameterName"`
-		EndTime       time.Time `json:"endTime"`
-		Remaining     int       `json:"remainingSeconds"`
+		ChangeID        string     `json:"changeId"`
+		Level           string     `json:"level"`
+		ParameterName   string     `json:"parameterName"`
+		EndTime         time.Time  `json:"endTime"`
+		Remaining       int        `json:"remainingSeconds"`
+		RequiresRestart bool       `json:"requiresRestart"`
+		EffectiveAt     *time.Time `json:"effectiveAt"`
 	}
 
 	var response LogLevelChangeResponse
@@ -171,9 +173,16 @@ func setLogLevel(cmd *cobra.Command, args []string) error {
 		return errors.Wrap(err, "Failed to parse server response")
 	}
 
-	fmt.Printf("Log level for %s successfully changed to '%s' for %d seconds\n", response.ParameterName, response.Level, response.Remaining)
 	fmt.Printf("Change ID: %s\n", response.ChangeID)
-	fmt.Printf("Will revert at: %s\n", response.EndTime.Format(time.RFC3339))
+	if response.RequiresRestart {
+		fmt.Printf("Log level for '%s' will change to '%s' for %d seconds once XRootD restarts.\n", response.ParameterName, response.Level, response.Remaining)
+		if response.EffectiveAt != nil {
+			fmt.Printf("Effective at: %s\n", response.EffectiveAt.Local().Format(time.RFC3339))
+		}
+	} else {
+		fmt.Printf("Log level for '%s' changed to '%s' for %d seconds.\n", response.ParameterName, response.Level, response.Remaining)
+	}
+	fmt.Printf("Reverts at: %s\n", response.EndTime.Local().Format(time.RFC3339))
 	return nil
 }
 

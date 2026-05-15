@@ -47,6 +47,65 @@ func TestLoggingFilter(t *testing.T) {
 	assert.Equal(t, `time="0001-01-01T00:00:00Z" level=panic msg="240229 14:13:55 18544 XrdPfc_Cache: info Attach() pelican://u221@itb-osdf-director-origins.dev.osgdev.chtc.io:443//ospool/ap20/data/dvp2/singularity_repos/iebe-music_dev.sif?&authz=Bearer%20eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiIsImtpZCI6IjhiNjkifQ.eyJzdWIiOiJkdnAyIiwic2NvcGUiOiJyZWFkOi9kYXRhL2R2cDIgd3JpdGU6L2RhdGEvZHZwMiIsInZlciI6InNjaXRva2VuczoyLjAiLCJhdWQiOlsiQU5ZIl0sImlzcyI6Imh0dHBzOi8vYXAyMC51Yy5vc2ctaHRjLm9yZzoxMDk0L29zcG9vbC9hcDIwIiwiZXhwIjoxNzA5MjM4MTk3LCJpYXQiOjE3MDkyMzY5OTcsIm5iZiI6MTcwOTIzNjk5NywianRpIjoiNGNhNGM0NmItZDBiNy00YTFhLTk4NmYtYzk0Mjc1MzAzNDc3In0.REDACTED"`+"\n", result.String())
 }
 
+// TestSetLoggingRevertWithGlobalFilters verifies that calling SetLogging to lower
+// the log level (e.g. reverting a temporary trace change back to error) actually
+// suppresses messages that exceed the new level.
+//
+// Regression test: globalTransform was previously registered at all hook levels
+// regardless of hookLevel, so writer.Hook.Fire wrote every entry unconditionally
+// even after the level was lowered.
+func TestSetLoggingRevertWithGlobalFilters(t *testing.T) {
+	// Set up a buffer that captures what the transform hook writes.
+	var buf bytes.Buffer
+	globalTransformMu.Lock()
+	savedAddedGlobalFilters := addedGlobalFilters
+	addedGlobalFilters = true
+	savedHook := globalTransform.hook.Load()
+	globalTransform.hook.Store(&writer.Hook{
+		Writer:    &syncWriter{writer: &buf},
+		LogLevels: log.AllLevels,
+	})
+	// Clear any pre-existing hooks so only our global hooks are active.
+	savedHooks := log.StandardLogger().ReplaceHooks(log.LevelHooks{})
+	globalTransformMu.Unlock()
+
+	// globalFilters.Fire dereferences its filters pointer; initialize it.
+	emptyFilters := make([]*RegexpFilter, 0)
+	savedFilters := globalFilters.filters.Swap(&emptyFilters)
+
+	// Mirror initFilterLogging: direct the standard logger to Discard so the
+	// only output path is through the hook (written to buf).
+	savedOut := log.StandardLogger().Out
+	log.SetOutput(bytes.NewBuffer(nil))
+
+	t.Cleanup(func() {
+		globalTransformMu.Lock()
+		addedGlobalFilters = savedAddedGlobalFilters
+		globalTransform.hook.Store(savedHook)
+		globalTransformMu.Unlock()
+		log.StandardLogger().ReplaceHooks(savedHooks)
+		log.SetLevel(log.InfoLevel)
+		log.SetOutput(savedOut)
+		if savedFilters != nil {
+			globalFilters.filters.Store(savedFilters)
+		}
+	})
+
+	// Raise level to trace, then lower back to error.
+	SetLogging(log.TraceLevel)
+	SetLogging(log.ErrorLevel)
+
+	buf.Reset()
+	log.Trace("should be suppressed")
+	log.Debug("should be suppressed")
+	log.Info("should be suppressed")
+	log.Error("should appear")
+
+	output := buf.String()
+	assert.NotContains(t, output, "should be suppressed", "messages below error level must not appear after reverting to error")
+	assert.Contains(t, output, "should appear", "error-level messages must still appear")
+}
+
 func TestLoggingCallback(t *testing.T) {
 	// Reset for clean test
 	require.NoError(t, param.Reset())

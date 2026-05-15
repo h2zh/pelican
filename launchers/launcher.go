@@ -164,6 +164,10 @@ func LaunchModules(ctx context.Context, modules server_structs.ServerType) (serv
 	servers = make([]server_structs.XRootDServer, 0)
 	serversRequireAdvertisement := make([]server_structs.XRootDServer, 0)
 
+	if modules.IsEnabled(server_structs.OriginType) || modules.IsEnabled(server_structs.CacheType) {
+		initXrootdRestartAdvertise()
+	}
+
 	if modules.IsEnabled(server_structs.OriginType) {
 
 		var server server_structs.XRootDServer
