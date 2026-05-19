@@ -119,25 +119,25 @@ This section describes how to configure Grafana to have proper authentication cr
 
 ### Authenticated Prometheus
 
-By default, Pelican protects the Prometheus endpoint by asking for a [JWT](https://jwt.io/introduction) to verify the user accessing the endpoint. It reads `Bearer <token>` from `Authorization` header during any HTTPS request to `/api/v1.0/prometheus` and its subpath. You need to create a JWT using the Pelican CLI and pass it to Grafana.
+By default, Pelican protects the Prometheus endpoint by asking for a credential to verify the user accessing the endpoint. It reads `Bearer <token>` from the `Authorization` header during any HTTPS request to `/api/v1.0/prometheus` and its subpaths. The recommended way to issue this credential is to generate a Pelican API key with the `monitoring.query` scope and pass it to Grafana.
 
-1. Run the following command
+1. Run the following command on your Pelican server. It requires the server's admin token (passed via `--token` or auto-discovered from the standard locations).
 
-    * Replace `<server-web-url>` with the URL to your Pelican server Web UI. By default, it's `https://localhost:8444`.
+    * Replace `<server-web-url>` with the URL to your Pelican server Web UI. By default, it's `https://localhost:8444`. This value must match the server's `Server.ExternalWebUrl`.
 
-    * Replace `--lifetime 604800` with your desired lifetime for the token. The value is in seconds. The example below generates a token with a lifetime of 7 days.
+    * Replace `--expiration` with your desired expiration time in RFC3339 format. The example below sets a far-future expiration.
 
     ```bash
-    $ pelican origin token create --scope monitoring.query --claim wlcg.ver=1.0 --issuer <server-web-url> --subject grafana --audience <server-web-url> --lifetime 604800
-
-    eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJodHRwczovL2V4YW1wbGUuY29tIiwiaWF0IjoxNzA5NjUwMjMyLCJleHAiOjE3NDExODYyMzIsImF1ZCI6Imh0dHBzOi8vZXhhbXBsZS5jb20iLCJzdWIiOiJncmFmYW5hIiwic2NvcGUiOiJtb25pdG9yaW5nLnF1ZXJ5Iiwid2xjZy52ZXIiOiIxLjAifQ.cK5QyYJinn3QCPa6YB10Wn37MEEKzt_kyDMR9meN1Ec
+    $ pelican apikey generate --scopes "monitoring.query" --expiration "2038-01-19T03:14:07Z" --server <server-web-url>
     ```
 
-2. Copy the generated token. Note that your token will be different from the example above.
+2. Copy the API key value printed by the command. Treat it as a credential.
 
-3. In the Grafana data source configuration page, go to the **Authentication** section, expand the **HTTP Headers** subsection, and click **Add header**
+3. In the Grafana data source configuration page, go to the **Authentication** section, expand the **HTTP Headers** subsection, and click **Add header**.
 
-4. Fill in `Authorization` for the **Header** field and `Bearer <token>` for the **Value** field with your generated token. Note that there is a whitespace between `Bearer` and your token.
+4. Fill in `Authorization` for the **Header** field and `Bearer <api-key>` for the **Value** field with your generated API key. Note that there is a whitespace between `Bearer` and the key value.
+
+> **Note**: An API key with only the `monitoring.query` scope is sufficient for Grafana to query the PromQL endpoint at `/api/v1.0/prometheus`. To scrape the raw `/metrics` endpoint from an external Prometheus instance, use the `monitoring.scrape` scope instead. See [Scrape Pelican Metrics with an External Prometheus](./prometheus.mdx#scrape-pelican-metrics-with-an-external-prometheus) for details.
 
 That's it! Now you can scroll to the bottom of the configuration page and click **Save & Test**. There should be green alert with a title **Successfully queried the Prometheus API.**
 
