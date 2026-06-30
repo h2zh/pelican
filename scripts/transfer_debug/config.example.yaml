@@ -1,0 +1,53 @@
+# Example configuration for pelican_transfer_debug.py
+#
+# Fill in the scenario you are debugging.  Only `object` and `failed_cache`
+# are needed to get started, but the more of the optional fields you provide,
+# the more sharply the tool can localize the failure.
+#
+# Run:  ./pelican_transfer_debug.py -c config.example.yaml
+
+# --- Required -------------------------------------------------------------
+
+# The object whose transfer failed (federation-relative path).
+object: /ospool/uc-shared/public/some-namespace/path/to/object.dat
+
+# The cache that was attempted and failed.  Use the same form you would pass
+# to `pelican object get --cache` (a hostname or a full https URL).
+failed_cache: https://failed-cache.example.org:8443
+
+# --- Strongly recommended -------------------------------------------------
+
+# The federation discovery host (or full https URL).  Used to find the
+# Director.  For the OSDF this is "osg-htc.org".
+federation: osg-htc.org
+
+# An object from a DIFFERENT namespace / object store that is known to work.
+# Pulling this exercises a cache's ability to discover and network with a new
+# origin (the cache-miss path); success points the finger at the first origin.
+control_object: /ospool/uc-shared/public/other-namespace/known-good.dat
+
+# A cache that is known to be operating correctly, used as a control.
+known_good_cache: https://known-good-cache.example.org:8443
+
+# --- Optional -------------------------------------------------------------
+
+# A different object from the SAME namespace/origin as `object`.  Lets the tool
+# distinguish a single broken object from an origin-wide problem.  Omit if you
+# do not have (access to) one.
+backup_object: /ospool/uc-shared/public/some-namespace/path/to/other.dat
+
+# The origin serving `object`.  Normally discoverable via the Director, so
+# leave this blank unless you want to pin a specific origin.
+origin:
+
+# Token / JWT file to use for the transfer of `object`/`backup_object`.
+# Omit for public (no-token) namespaces.
+token:
+
+# Token / JWT file for `control_object`, if that namespace needs a different
+# token than `object`.  Omit if the control object is public.
+control_token:
+
+# Client binary to drive transfers with.  Defaults to "pelican"; set to "osdf"
+# if you use the OSDF-branded build.
+binary: pelican
