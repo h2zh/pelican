@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh auth *)",
+      "Bash(git -C /Users/hzhong/Documents/dev/pelican-0821/pelican branch -a)",
+      "Bash(git -C /Users/hzhong/Documents/dev/pelican-0821/pelican log --oneline -3 origin/main)"
+    ]
+  }
+}
